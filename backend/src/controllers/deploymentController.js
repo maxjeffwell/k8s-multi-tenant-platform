@@ -1,4 +1,4 @@
-const k8sService = require('../services/k8sService');
+import k8sService from '../services/k8sService.js';
 
 class DeploymentController {
   // Deploy educationelly-graphql to a tenant namespace
@@ -57,4 +57,4 @@ class DeploymentController {
   }
 }
 
-module.exports = new DeploymentController();
+export default new DeploymentController();

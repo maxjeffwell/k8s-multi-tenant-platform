@@ -1,13 +1,13 @@
-const { k8sApi, k8sAppsApi, k8sNetworkingApi } = require('../config/k8s');
-const k8s = require('@kubernetes/client-node');
+import { k8sApi, k8sAppsApi, k8sNetworkingApi } from '../config/k8s.js';
+import * as k8s from '@kubernetes/client-node';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 class K8sService {
   // Create a new namespace for a tenant
   async createNamespace(tenantName, resourceQuota = {}) {
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-
     try {
       // Use kubectl as workaround for K8s client API compatibility issue
       const createCmd = `kubectl create namespace ${tenantName} --dry-run=client -o json`;
@@ -112,10 +112,6 @@ class K8sService {
 
   // Helper method to create a deployment
   async createDeployment(namespace, appName, image, port, replicas, env) {
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-
     const deployment = {
       apiVersion: 'apps/v1',
       kind: 'Deployment',
@@ -189,10 +185,6 @@ class K8sService {
 
   // Create service for the deployment
   async createService(namespace, appName, port) {
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-
     const service = {
       apiVersion: 'v1',
       kind: 'Service',
@@ -331,4 +323,4 @@ class K8sService {
   }
 }
 
-module.exports = new K8sService();
+export default new K8sService();

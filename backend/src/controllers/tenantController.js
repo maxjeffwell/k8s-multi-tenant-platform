@@ -1,4 +1,4 @@
-const k8sService = require('../services/k8sService');
+import k8sService from '../services/k8sService.js';
 
 class TenantController {
   // Create a new tenant
@@ -109,4 +109,4 @@ class TenantController {
   }
 }
 
-module.exports = new TenantController();
+export default new TenantController();

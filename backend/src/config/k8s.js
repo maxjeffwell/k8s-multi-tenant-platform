@@ -1,4 +1,4 @@
-const k8s = require('@kubernetes/client-node');
+import * as k8s from '@kubernetes/client-node';
 
 const kc = new k8s.KubeConfig();
 
@@ -14,7 +14,7 @@ const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
 const k8sAppsApi = kc.makeApiClient(k8s.AppsV1Api);
 const k8sNetworkingApi = kc.makeApiClient(k8s.NetworkingV1Api);
 
-module.exports = {
+export {
   kc,
   k8sApi,
   k8sAppsApi,

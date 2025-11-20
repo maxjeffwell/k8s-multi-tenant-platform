@@ -1,8 +1,8 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const tenantRoutes = require('./routes/tenantRoutes');
-const deploymentRoutes = require('./routes/deploymentRoutes');
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import tenantRoutes from './routes/tenantRoutes.js';
+import deploymentRoutes from './routes/deploymentRoutes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
