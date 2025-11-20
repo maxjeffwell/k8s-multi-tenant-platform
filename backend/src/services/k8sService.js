@@ -246,18 +246,24 @@ class K8sService {
   // Get tenant details including deployments and resource usage
   async getTenantDetails(namespace) {
     try {
-      const [ns, deployments, services, pods] = await Promise.all([
-        k8sApi.readNamespace(namespace),
-        k8sAppsApi.listNamespacedDeployment(namespace),
-        k8sApi.listNamespacedService(namespace),
-        k8sApi.listNamespacedPod(namespace)
+      // Use kubectl as workaround for K8s client API compatibility issue
+      const [nsResult, deploymentsResult, servicesResult, podsResult] = await Promise.all([
+        execAsync(`kubectl get namespace ${namespace} -o json`),
+        execAsync(`kubectl get deployments -n ${namespace} -o json`),
+        execAsync(`kubectl get services -n ${namespace} -o json`),
+        execAsync(`kubectl get pods -n ${namespace} -o json`)
       ]);
 
+      const ns = JSON.parse(nsResult.stdout);
+      const deployments = JSON.parse(deploymentsResult.stdout);
+      const services = JSON.parse(servicesResult.stdout);
+      const pods = JSON.parse(podsResult.stdout);
+
       return {
-        namespace: ns.body,
-        deployments: deployments.body.items,
-        services: services.body.items,
-        pods: pods.body.items
+        namespace: ns,
+        deployments: deployments.items || [],
+        services: services.items || [],
+        pods: pods.items || []
       };
     } catch (error) {
       throw new Error(`Failed to get tenant details: ${error.message}`);
