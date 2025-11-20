@@ -1,0 +1,313 @@
+.dashboard {
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.dashboard-header {
+  text-align: center;
+  color: white;
+  margin-bottom: 3rem;
+}
+
+.dashboard-header h1 {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.dashboard-header p {
+  font-size: 1.25rem;
+  opacity: 0.9;
+}
+
+.dashboard-content {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.dashboard-actions {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  justify-content: center;
+}
+
+/* Create Tenant Form */
+.create-tenant-form {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.create-tenant-form h2 {
+  margin-bottom: 1.5rem;
+  color: #1f2937;
+}
+
+/* Tenant List */
+.tenant-list {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.tenant-list h2 {
+  margin-bottom: 1.5rem;
+  color: #1f2937;
+}
+
+.tenant-grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: #6b7280;
+}
+
+.empty-state h3 {
+  margin-bottom: 0.5rem;
+  color: #374151;
+}
+
+/* Tenant Card */
+.tenant-card {
+  background: #f9fafb;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.tenant-card:hover {
+  border-color: #4f46e5;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.15);
+}
+
+.tenant-card.expanded {
+  border-color: #4f46e5;
+}
+
+.tenant-card-header {
+  padding: 1.5rem;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tenant-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.tenant-info h3 {
+  margin: 0;
+  color: #1f2937;
+  font-size: 1.25rem;
+}
+
+.tenant-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.expand-btn {
+  background: none;
+  border: none;
+  color: #4f46e5;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.tenant-card-body {
+  padding: 1.5rem;
+  border-top: 2px solid #e5e7eb;
+}
+
+.loading-details {
+  text-align: center;
+  padding: 2rem;
+  color: #6b7280;
+}
+
+/* Deployment Controls */
+.deployment-controls {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  border: 2px solid #e5e7eb;
+}
+
+.deployment-controls h4 {
+  margin-bottom: 1rem;
+  color: #1f2937;
+}
+
+/* Deployments Section */
+.deployments-section,
+.services-section,
+.metrics-section,
+.pods-section {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  border: 2px solid #e5e7eb;
+}
+
+.deployments-section h4,
+.services-section h4,
+.metrics-section h4,
+.pods-section h4 {
+  margin-bottom: 1rem;
+  color: #1f2937;
+}
+
+.deployment-info,
+.service-info {
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+
+.deployment-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.deployment-name {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.replica-count {
+  color: #4f46e5;
+  font-weight: 500;
+}
+
+.deployment-details {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.service-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+}
+
+/* Metrics Grid */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.metric {
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.metric-label {
+  display: block;
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+}
+
+.metric-value {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.metric-value.running {
+  color: #10b981;
+}
+
+.metric-value.pending {
+  color: #f59e0b;
+}
+
+.metric-value.failed {
+  color: #ef4444;
+}
+
+/* Pods List */
+.pods-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pod-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.pod-name {
+  flex: 1;
+  color: #1f2937;
+  font-weight: 500;
+}
+
+.pod-status {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-weight: 500;
+  margin: 0 0.5rem;
+}
+
+.pod-status.running {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.pod-status.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.pod-status.failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.pod-restarts {
+  color: #6b7280;
+}
+
+/* Tenant Actions */
+.tenant-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid #e5e7eb;
+}

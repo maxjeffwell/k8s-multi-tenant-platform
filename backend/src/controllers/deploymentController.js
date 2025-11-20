@@ -5,24 +5,32 @@ class DeploymentController {
   async deployApp(req, res) {
     try {
       const { tenantName } = req.params;
-      const { replicas, image, env } = req.body;
+      const { replicas, serverImage, clientImage, env } = req.body;
 
       const config = {
         replicas: replicas || 1,
-        image: image || 'your-registry/educationelly-graphql:latest',
-        port: 4000,
+        serverImage,
+        clientImage,
         env: env || []
       };
 
-      const deployment = await k8sService.deployEducationelly(tenantName, config);
+      const result = await k8sService.deployEducationelly(tenantName, config);
 
       res.status(201).json({
         message: 'Application deployed successfully',
-        deployment: {
-          name: deployment.metadata.name,
-          namespace: deployment.metadata.namespace,
-          replicas: deployment.spec.replicas,
-          image: deployment.spec.template.spec.containers[0].image
+        deployments: {
+          server: {
+            name: result.server.metadata.name,
+            namespace: result.server.metadata.namespace,
+            replicas: result.server.spec.replicas,
+            image: result.server.spec.template.spec.containers[0].image
+          },
+          client: {
+            name: result.client.metadata.name,
+            namespace: result.client.metadata.namespace,
+            replicas: result.client.spec.replicas,
+            image: result.client.spec.template.spec.containers[0].image
+          }
         }
       });
     } catch (error) {

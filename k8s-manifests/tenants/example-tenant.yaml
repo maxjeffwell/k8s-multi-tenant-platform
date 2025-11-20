@@ -1,0 +1,269 @@
+# Example tenant namespace with educationelly-graphql deployment
+# Replace TENANT_NAME with actual tenant name (e.g., demo-school-a)
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: TENANT_NAME
+  labels:
+    app.kubernetes.io/managed-by: multi-tenant-platform
+    tenant: TENANT_NAME
+---
+# Resource Quota
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: TENANT_NAME-quota
+  namespace: TENANT_NAME
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "2"
+    limits.memory: 4Gi
+    persistentvolumeclaims: "5"
+    pods: "10"
+---
+# MongoDB for this tenant
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongodb-pvc
+  namespace: TENANT_NAME
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb
+  namespace: TENANT_NAME
+spec:
+  serviceName: mongodb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:7.0
+          ports:
+            - containerPort: 27017
+              name: mongodb
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: "admin"
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              value: "CHANGE_ME_IN_PRODUCTION"
+            - name: MONGO_INITDB_DATABASE
+              value: "educationelly"
+          volumeMounts:
+            - name: mongodb-storage
+              mountPath: /data/db
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+      volumes:
+        - name: mongodb-storage
+          persistentVolumeClaim:
+            claimName: mongodb-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: TENANT_NAME
+spec:
+  selector:
+    app: mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+  type: ClusterIP
+---
+# educationelly-graphql-server deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: educationelly-graphql-server
+  namespace: TENANT_NAME
+  labels:
+    app: educationelly-graphql-server
+    tenant: TENANT_NAME
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: educationelly-graphql-server
+  template:
+    metadata:
+      labels:
+        app: educationelly-graphql-server
+        tenant: TENANT_NAME
+    spec:
+      containers:
+        - name: educationelly-graphql-server
+          image: maxjeffwell/educationelly-graphql-server:latest
+          ports:
+            - containerPort: 4000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4000"
+            - name: MONGO_URI
+              value: "mongodb://admin:CHANGE_ME_IN_PRODUCTION@mongodb:27017/educationelly?authSource=admin"
+            - name: TENANT_ID
+              value: "TENANT_NAME"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: educationelly-graphql-server
+  namespace: TENANT_NAME
+spec:
+  selector:
+    app: educationelly-graphql-server
+  ports:
+    - port: 4000
+      targetPort: 4000
+      protocol: TCP
+      name: http
+  type: ClusterIP
+---
+# educationelly-graphql-client deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: educationelly-graphql-client
+  namespace: TENANT_NAME
+  labels:
+    app: educationelly-graphql-client
+    tenant: TENANT_NAME
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: educationelly-graphql-client
+  template:
+    metadata:
+      labels:
+        app: educationelly-graphql-client
+        tenant: TENANT_NAME
+    spec:
+      containers:
+        - name: educationelly-graphql-client
+          image: maxjeffwell/educationelly-graphql-client:latest
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: GRAPHQL_ENDPOINT
+              value: "http://educationelly-graphql-server:4000/graphql"
+            - name: TENANT_ID
+              value: "TENANT_NAME"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: educationelly-graphql-client
+  namespace: TENANT_NAME
+spec:
+  selector:
+    app: educationelly-graphql-client
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  type: ClusterIP
+---
+# Network Policy for isolation
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-isolation
+  namespace: TENANT_NAME
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ingress from same namespace
+    - from:
+        - podSelector: {}
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow egress within namespace
+    - to:
+        - podSelector: {}
+    # Allow egress to internet (for external APIs if needed)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
