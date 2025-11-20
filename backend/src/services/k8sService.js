@@ -41,8 +41,7 @@ class K8sService {
   async createResourceQuota(namespace, quota) {
     const resourceQuota = {
       metadata: {
-        name: `${namespace}-quota`,
-        namespace: namespace
+        name: `${namespace}-quota`
       },
       spec: {
         hard: {
