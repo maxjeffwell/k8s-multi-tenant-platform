@@ -97,6 +97,33 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
+.metabase-card {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.dashboard-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 20px 0;
+}
+
+.chart-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 16px 0;
+}
+
+.metabase-embed {
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
 /* Configuration Guide */
 .config-guide {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
