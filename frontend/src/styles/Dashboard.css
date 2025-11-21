@@ -161,6 +161,8 @@
 
 /* Deployments Section */
 .deployments-section,
+.ingress-section,
+.database-section,
 .services-section,
 .metrics-section,
 .pods-section {
@@ -172,6 +174,8 @@
 }
 
 .deployments-section h4,
+.ingress-section h4,
+.database-section h4,
 .services-section h4,
 .metrics-section h4,
 .pods-section h4 {
@@ -209,9 +213,79 @@
 }
 
 .service-info {
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+}
+
+.service-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.service-name {
+  font-weight: 600;
+  color: #1f2937;
+  font-size: 1rem;
+}
+
+.service-type {
+  color: #6b7280;
   font-size: 0.875rem;
+}
+
+.service-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.service-ports {
+  color: #6b7280;
+}
+
+.service-pods {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.pods-label {
+  color: #4b5563;
+  font-weight: 500;
+  margin-right: 0.25rem;
+}
+
+.pod-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid #e5e7eb;
+}
+
+.pod-badge.running {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: #10b981;
+}
+
+.pod-badge.pending {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #f59e0b;
+}
+
+.pod-badge.failed {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #ef4444;
 }
 
 /* Metrics Grid */
@@ -301,6 +375,110 @@
 
 .pod-restarts {
   color: #6b7280;
+}
+
+/* Ingress Section */
+.ingress-info {
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+}
+
+.ingress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.ingress-type {
+  font-weight: 600;
+  color: #1f2937;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.ingress-url {
+  color: #4f46e5;
+  text-decoration: none;
+  font-family: monospace;
+  font-size: 0.875rem;
+  transition: color 0.2s;
+  word-break: break-all;
+}
+
+.ingress-url:hover {
+  color: #6366f1;
+  text-decoration: underline;
+}
+
+/* Database Section */
+.database-info {
+  padding: 1rem;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+
+.database-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.database-name {
+  font-weight: 600;
+  color: #1f2937;
+  font-size: 1rem;
+}
+
+.connection-status {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.connection-status.connected {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #10b981;
+}
+
+.connection-status.connection_error {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #ef4444;
+}
+
+.connection-status.no_pods,
+.connection-status.pod_not_running,
+.connection-status.unknown,
+.connection-status.logs_unavailable {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+}
+
+.database-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.connection-message {
+  font-style: italic;
+  color: #4b5563;
+}
+
+.database-not-configured {
+  text-align: center;
+  padding: 1rem;
+  color: #6b7280;
+  font-style: italic;
 }
 
 /* Tenant Actions */

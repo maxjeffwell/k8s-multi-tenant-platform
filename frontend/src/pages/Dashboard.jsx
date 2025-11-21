@@ -25,9 +25,7 @@ function Dashboard() {
 
   useEffect(() => {
     fetchTenants();
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchTenants, 30000);
-    return () => clearInterval(interval);
+    // No auto-refresh - user can manually refresh when needed
   }, []);
 
   const handleTenantCreated = () => {
@@ -35,8 +33,11 @@ function Dashboard() {
     fetchTenants();
   };
 
-  const handleTenantDeleted = () => {
-    fetchTenants();
+  const handleTenantDeleted = (deletedTenantName) => {
+    // Optimistically remove tenant from UI immediately
+    setTenants(prevTenants => prevTenants.filter(t => t.name !== deletedTenantName));
+    // Fetch again after a delay to sync with actual state
+    setTimeout(fetchTenants, 2000);
   };
 
   return (

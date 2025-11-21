@@ -38,12 +38,13 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
     setDeleting(true);
     try {
       await tenantApi.deleteTenant(tenant.name);
-      onDeleted();
+      // Immediately trigger parent refresh with tenant name
+      onDeleted(tenant.name);
     } catch (err) {
       alert('Failed to delete tenant: ' + err.message);
-    } finally {
       setDeleting(false);
     }
+    // Don't set deleting to false on success - let the component unmount
   };
 
   const hasDeployments = details?.deployments && details.deployments.length > 0;
@@ -99,18 +100,104 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
                 </div>
               )}
 
+              {details?.ingresses && details.ingresses.length > 0 && (
+                <div className="ingress-section">
+                  <h4>Access URLs</h4>
+                  {details.ingresses.map((ingress) => (
+                    <div key={ingress.name} className="ingress-info">
+                      <div className="ingress-header">
+                        <span className="ingress-type">
+                          {ingress.type === 'client' ? '🌐 Frontend' : '⚡ API'}
+                        </span>
+                        <a
+                          href={ingress.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ingress-url"
+                        >
+                          {ingress.host}
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {details?.database && (
+                <div className="database-section">
+                  <h4>Database</h4>
+                  <div className="database-info">
+                    {details.database.configured ? (
+                      <>
+                        <div className="database-header">
+                          <span className="database-name">
+                            {details.database.name}
+                          </span>
+                          {details.database.connection && (
+                            <span className={`connection-status ${details.database.connection.status}`}>
+                              {details.database.connection.status === 'connected' && '✓ Connected'}
+                              {details.database.connection.status === 'connection_error' && '✗ Connection Error'}
+                              {details.database.connection.status === 'no_pods' && '○ No Pods'}
+                              {details.database.connection.status === 'pod_not_running' && '○ Pod Not Running'}
+                              {details.database.connection.status === 'unknown' && '? Unknown'}
+                              {details.database.connection.status === 'logs_unavailable' && '? Logs Unavailable'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="database-details">
+                          <span>Username: {details.database.username}</span>
+                          {details.database.connection?.message && (
+                            <span className="connection-message">
+                              {details.database.connection.message}
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="database-not-configured">
+                        No database configured
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {details?.services && details.services.length > 0 && (
                 <div className="services-section">
                   <h4>Services</h4>
-                  {details.services.map((service) => (
-                    <div key={service.name} className="service-info">
-                      <span>{service.name}</span>
-                      <span>Type: {service.type}</span>
-                      <span>
-                        Ports: {service.ports.map((p) => p.port).join(', ')}
-                      </span>
-                    </div>
-                  ))}
+                  {details.services.map((service) => {
+                    // Find pods that match this service's selector
+                    const matchingPods = details.pods?.filter(pod => {
+                      if (!service.selector || !pod.labels) return false;
+                      return Object.entries(service.selector).every(
+                        ([key, value]) => pod.labels[key] === value
+                      );
+                    }) || [];
+
+                    return (
+                      <div key={service.name} className="service-info">
+                        <div className="service-header">
+                          <span className="service-name">{service.name}</span>
+                          <span className="service-type">Type: {service.type}</span>
+                        </div>
+                        <div className="service-details">
+                          <div className="service-ports">
+                            Ports: {service.ports.map((p) => `${p.port}:${p.targetPort}`).join(', ')}
+                          </div>
+                          {matchingPods.length > 0 && (
+                            <div className="service-pods">
+                              <span className="pods-label">Targeting pods:</span>
+                              {matchingPods.map(pod => (
+                                <span key={pod.name} className={`pod-badge ${pod.status.toLowerCase()}`}>
+                                  {pod.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 

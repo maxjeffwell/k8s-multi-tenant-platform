@@ -1,4 +1,5 @@
 import k8sService from '../services/k8sService.js';
+import ingressService from '../services/ingressService.js';
 
 class DeploymentController {
   // Deploy educationelly-graphql to a tenant namespace
@@ -16,6 +17,29 @@ class DeploymentController {
 
       const result = await k8sService.deployEducationelly(tenantName, config);
 
+      // Create ingress resources for external access
+      let clientIngress = null;
+      let serverIngress = null;
+
+      try {
+        // Create ingress for client (frontend)
+        clientIngress = await ingressService.createClientIngress(
+          tenantName,
+          'educationelly-graphql-client',
+          3000
+        );
+
+        // Create ingress for server (GraphQL API)
+        serverIngress = await ingressService.createServerIngress(
+          tenantName,
+          'educationelly-graphql-server',
+          4000
+        );
+      } catch (ingressError) {
+        console.error('Failed to create ingress:', ingressError);
+        // Continue even if ingress creation fails
+      }
+
       res.status(201).json({
         message: 'Application deployed successfully',
         deployments: {
@@ -31,6 +55,10 @@ class DeploymentController {
             replicas: result.client.spec.replicas,
             image: result.client.spec.template.spec.containers[0].image
           }
+        },
+        ingress: {
+          client: clientIngress,
+          server: serverIngress
         }
       });
     } catch (error) {

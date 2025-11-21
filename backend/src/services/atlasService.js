@@ -32,7 +32,13 @@ class AtlasService {
       throw new Error(`${response.status} - ${errorBody}`);
     }
 
-    return response.json();
+    // Check if response has content before parsing JSON
+    const text = await response.text();
+    if (!text || text.trim().length === 0) {
+      return {}; // Return empty object for successful requests with no body
+    }
+
+    return JSON.parse(text);
   }
 
   /**

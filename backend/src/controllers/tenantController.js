@@ -1,5 +1,6 @@
 import k8sService from '../services/k8sService.js';
 import atlasService from '../services/atlasService.js';
+import ingressService from '../services/ingressService.js';
 
 class TenantController {
   // Create a new tenant
@@ -120,14 +121,21 @@ class TenantController {
           ? Buffer.from(secretData.MONGO_USERNAME, 'base64').toString('utf-8')
           : null;
 
+        // Check if pods are actually connected to the database
+        const connectionStatus = await k8sService.checkDatabaseConnection(tenantName);
+
         databaseInfo = {
           configured: true,
           name: databaseName,
           username: username,
           secretName: secretName,
-          createdAt: secret.metadata?.creationTimestamp
+          createdAt: secret.metadata?.creationTimestamp,
+          connection: connectionStatus
         };
       }
+
+      // Get ingress information
+      const ingresses = await ingressService.getTenantIngresses(tenantName);
 
       res.json({
         tenant: {
@@ -145,13 +153,16 @@ class TenantController {
         services: details.services.map(s => ({
           name: s.metadata.name,
           type: s.spec.type,
+          selector: s.spec.selector,
           ports: s.spec.ports
         })),
         pods: details.pods.map(p => ({
           name: p.metadata.name,
           status: p.status.phase,
+          labels: p.metadata.labels,
           restarts: p.status.containerStatuses?.[0]?.restartCount || 0
-        }))
+        })),
+        ingresses: ingresses
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -185,11 +196,19 @@ class TenantController {
         }
       }
 
-      // Delete the namespace (this will also delete the secret)
+      // Delete ingresses for the tenant
+      try {
+        await ingressService.deleteTenantIngresses(tenantName);
+      } catch (ingressError) {
+        console.error('Failed to delete ingresses:', ingressError);
+        // Continue with namespace deletion even if ingress deletion fails
+      }
+
+      // Delete the namespace (this will also delete the secret and remaining resources)
       const result = await k8sService.deleteTenant(tenantName);
 
       res.json({
-        message: 'Tenant and associated database deleted successfully',
+        message: 'Tenant and associated resources deleted successfully',
         details: result
       });
     } catch (error) {

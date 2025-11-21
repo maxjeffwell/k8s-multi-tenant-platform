@@ -269,9 +269,13 @@ class K8sService {
       const allItems = response.body?.items || response.items || [];
 
       // Filter to only include namespaces managed by this platform
+      // and exclude terminating namespaces
       const filteredItems = allItems.filter(ns => {
         const labels = ns.metadata?.labels || {};
-        return labels['app.kubernetes.io/managed-by'] === 'multi-tenant-platform';
+        const isManaged = labels['app.kubernetes.io/managed-by'] === 'multi-tenant-platform';
+        const isTerminating = ns.metadata?.deletionTimestamp !== undefined;
+
+        return isManaged && !isTerminating;
       });
 
       return filteredItems;
@@ -314,17 +318,27 @@ class K8sService {
   // Get resource usage metrics for a namespace
   async getNamespaceMetrics(namespace) {
     try {
-      const pods = await k8sApi.listNamespacedPod(namespace);
-      const quota = await k8sApi.readNamespacedResourceQuota(`${namespace}-quota`, namespace);
+      // Use kubectl as workaround for K8s client API compatibility issue
+      const podsResult = await execAsync(`kubectl get pods -n ${namespace} -o json`);
+      const pods = JSON.parse(podsResult.stdout);
+
+      let quotaData = null;
+      try {
+        const quotaResult = await execAsync(`kubectl get resourcequota ${namespace}-quota -n ${namespace} -o json`);
+        quotaData = JSON.parse(quotaResult.stdout);
+      } catch (quotaError) {
+        // Quota might not exist, that's okay
+        console.warn(`No resource quota found for ${namespace}`);
+      }
 
       return {
         pods: {
-          total: pods.body.items.length,
-          running: pods.body.items.filter(p => p.status.phase === 'Running').length,
-          pending: pods.body.items.filter(p => p.status.phase === 'Pending').length,
-          failed: pods.body.items.filter(p => p.status.phase === 'Failed').length
+          total: pods.items.length,
+          running: pods.items.filter(p => p.status.phase === 'Running').length,
+          pending: pods.items.filter(p => p.status.phase === 'Pending').length,
+          failed: pods.items.filter(p => p.status.phase === 'Failed').length
         },
-        quota: quota.body
+        quota: quotaData
       };
     } catch (error) {
       throw new Error(`Failed to get metrics: ${error.message}`);
@@ -334,9 +348,15 @@ class K8sService {
   // Delete a tenant namespace (this will delete all resources in it)
   async deleteTenant(namespace) {
     try {
-      await k8sApi.deleteNamespace(namespace);
-      return { message: `Namespace ${namespace} deleted successfully` };
+      // Use kubectl as workaround for K8s client API compatibility issue
+      const deleteCmd = `kubectl delete namespace ${namespace} --wait=false`;
+      await execAsync(deleteCmd);
+      return { message: `Namespace ${namespace} deletion initiated successfully` };
     } catch (error) {
+      // If namespace doesn't exist, consider it already deleted (success)
+      if (error.message && error.message.includes('NotFound')) {
+        return { message: `Namespace ${namespace} already deleted or doesn't exist` };
+      }
       throw new Error(`Failed to delete tenant: ${error.message}`);
     }
   }
@@ -461,6 +481,91 @@ class K8sService {
       throw new Error('No containers found in deployment');
     } catch (error) {
       throw new Error(`Failed to update deployment with secret: ${error.message}`);
+    }
+  }
+
+  // Check database connection status by examining pod logs
+  async checkDatabaseConnection(namespace) {
+    try {
+      // Get pods in the namespace that match the server deployment
+      const podsResult = await execAsync(`kubectl get pods -n ${namespace} -l app=educationelly-graphql-server -o json`);
+      const pods = JSON.parse(podsResult.stdout);
+
+      if (!pods.items || pods.items.length === 0) {
+        return {
+          connected: false,
+          status: 'no_pods',
+          message: 'No server pods found'
+        };
+      }
+
+      // Get the most recent pod
+      const pod = pods.items[0];
+      const podName = pod.metadata.name;
+      const podPhase = pod.status.phase;
+
+      // If pod is not running, can't check logs
+      if (podPhase !== 'Running') {
+        return {
+          connected: false,
+          status: 'pod_not_running',
+          message: `Pod is ${podPhase}`,
+          podName: podName
+        };
+      }
+
+      try {
+        // Get recent logs (last 50 lines) from the pod
+        const logsCmd = `kubectl logs ${podName} -n ${namespace} --tail=100 2>&1 || true`;
+        const { stdout: logs } = await execAsync(logsCmd);
+
+        // Check for MongoDB connection indicators
+        const hasMongoConnection = logs.includes('MongoDB') || logs.includes('mongoose') || logs.includes('Connected to');
+        const hasMongoError = logs.includes('MongoServerError') ||
+                             logs.includes('MongooseServerSelectionError') ||
+                             logs.includes('Authentication failed') ||
+                             logs.includes('ECONNREFUSED') ||
+                             logs.includes('connection error');
+
+        if (hasMongoError) {
+          return {
+            connected: false,
+            status: 'connection_error',
+            message: 'Database connection error detected in logs',
+            podName: podName
+          };
+        }
+
+        if (hasMongoConnection) {
+          return {
+            connected: true,
+            status: 'connected',
+            message: 'Database connection detected',
+            podName: podName
+          };
+        }
+
+        // No clear indicators - pod is running but no connection info
+        return {
+          connected: null,
+          status: 'unknown',
+          message: 'No database connection info in logs',
+          podName: podName
+        };
+      } catch (logError) {
+        return {
+          connected: null,
+          status: 'logs_unavailable',
+          message: 'Could not retrieve pod logs',
+          podName: podName
+        };
+      }
+    } catch (error) {
+      return {
+        connected: false,
+        status: 'error',
+        message: error.message
+      };
     }
   }
 }
