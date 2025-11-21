@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import tenantRoutes from './routes/tenantRoutes.js';
 import deploymentRoutes from './routes/deploymentRoutes.js';
+import databaseRoutes from './routes/databaseRoutes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,6 +25,7 @@ app.get('/health', (req, res) => {
 
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/deployments', deploymentRoutes);
+app.use('/api/database', databaseRoutes);
 
 // Error handling
 app.use((err, req, res, next) => {

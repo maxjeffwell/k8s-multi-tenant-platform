@@ -1,0 +1,12 @@
+import express from 'express';
+import databaseController from '../controllers/databaseController.js';
+
+const router = express.Router();
+
+// Database management routes
+router.get('/test', databaseController.testAtlasConnection.bind(databaseController));
+router.post('/:tenantName/database', databaseController.createDatabase.bind(databaseController));
+router.delete('/:tenantName/database', databaseController.deleteDatabase.bind(databaseController));
+router.get('/:tenantName/database/status', databaseController.getDatabaseStatus.bind(databaseController));
+
+export default router;

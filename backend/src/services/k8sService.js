@@ -29,9 +29,10 @@ class K8sService {
         await this.createResourceQuota(tenantName, resourceQuota);
       }
 
-      // Return the namespace details
-      const response = await k8sApi.readNamespace(tenantName);
-      return response.body || response;
+      // Return the namespace details using kubectl
+      const getCmd = `kubectl get namespace ${tenantName} -o json`;
+      const { stdout: nsData } = await execAsync(getCmd);
+      return JSON.parse(nsData);
     } catch (error) {
       throw new Error(`Failed to create namespace: ${error.message}`);
     }
@@ -40,8 +41,11 @@ class K8sService {
   // Create resource quota for a namespace
   async createResourceQuota(namespace, quota) {
     const resourceQuota = {
+      apiVersion: 'v1',
+      kind: 'ResourceQuota',
       metadata: {
-        name: `${namespace}-quota`
+        name: `${namespace}-quota`,
+        namespace: namespace
       },
       spec: {
         hard: {
@@ -56,7 +60,9 @@ class K8sService {
     };
 
     try {
-      await k8sApi.createNamespacedResourceQuota(namespace, resourceQuota);
+      const quotaJson = JSON.stringify(resourceQuota);
+      const applyCmd = `echo '${quotaJson}' | kubectl apply -f -`;
+      await execAsync(applyCmd);
     } catch (error) {
       throw new Error(`Failed to create resource quota: ${error.message}`);
     }
@@ -70,31 +76,45 @@ class K8sService {
       clientImage = 'maxjeffwell/educationelly-graphql-client:latest',
       serverPort = 4000,
       clientPort = 3000,
-      env = []
+      env = [],
+      databaseSecretName = null
     } = config;
 
     try {
-      // Deploy GraphQL Server
+      // Check if database secret exists in namespace
+      const secretName = databaseSecretName || `${namespace}-mongodb-secret`;
+      const secretExists = await this.getSecret(namespace, secretName);
+
+      // Deploy GraphQL Server with database secret if available
       const serverDeployment = await this.createDeployment(
         namespace,
         'educationelly-graphql-server',
         serverImage,
         serverPort,
         replicas,
-        env
+        env,
+        secretExists ? secretName : null
       );
 
       // Create service for server
       await this.createService(namespace, 'educationelly-graphql-server', serverPort);
 
-      // Deploy Client Frontend
+      // Deploy Client Frontend (doesn't need database access)
+      // Security context allows nginx to bind to privileged ports
+      const clientSecurityContext = {
+        runAsUser: 0, // Run as root to allow nginx to bind to port 80
+        allowPrivilegeEscalation: true
+      };
+
       const clientDeployment = await this.createDeployment(
         namespace,
         'educationelly-graphql-client',
         clientImage,
         clientPort,
         replicas,
-        env
+        env,
+        null, // Client doesn't need database secret
+        clientSecurityContext
       );
 
       // Create service for client
@@ -102,7 +122,8 @@ class K8sService {
 
       return {
         server: serverDeployment.body,
-        client: clientDeployment.body
+        client: clientDeployment.body,
+        databaseConfigured: !!secretExists
       };
     } catch (error) {
       throw new Error(`Failed to deploy application: ${error.message}`);
@@ -110,7 +131,49 @@ class K8sService {
   }
 
   // Helper method to create a deployment
-  async createDeployment(namespace, appName, image, port, replicas, env) {
+  async createDeployment(namespace, appName, image, port, replicas, env, secretName = null, securityContext = null) {
+    const containerSpec = {
+      name: appName,
+      image: image,
+      ports: [
+        {
+          containerPort: port,
+          name: 'http'
+        }
+      ],
+      resources: {
+        requests: {
+          memory: '256Mi',
+          cpu: '250m'
+        },
+        limits: {
+          memory: '512Mi',
+          cpu: '500m'
+        }
+      }
+    };
+
+    // Add security context if provided
+    if (securityContext) {
+      containerSpec.securityContext = securityContext;
+    }
+
+    // Add environment variables from secret if provided
+    if (secretName) {
+      containerSpec.envFrom = [
+        {
+          secretRef: {
+            name: secretName
+          }
+        }
+      ];
+    }
+
+    // Add additional env vars if provided
+    if (env && env.length > 0) {
+      containerSpec.env = env;
+    }
+
     const deployment = {
       apiVersion: 'apps/v1',
       kind: 'Deployment',
@@ -137,29 +200,7 @@ class K8sService {
             }
           },
           spec: {
-            containers: [
-              {
-                name: appName,
-                image: image,
-                ports: [
-                  {
-                    containerPort: port,
-                    name: 'http'
-                  }
-                ],
-                env: env,
-                resources: {
-                  requests: {
-                    memory: '256Mi',
-                    cpu: '250m'
-                  },
-                  limits: {
-                    memory: '512Mi',
-                    cpu: '500m'
-                  }
-                }
-              }
-            ]
+            containers: [containerSpec]
           }
         }
       }
@@ -324,6 +365,102 @@ class K8sService {
       return { message: `Deployment scaled to ${replicas} replicas` };
     } catch (error) {
       throw new Error(`Failed to scale deployment: ${error.message}`);
+    }
+  }
+
+  // Create a Kubernetes Secret for database credentials
+  async createDatabaseSecret(namespace, secretName, connectionString, username, password, databaseName) {
+    const secret = {
+      apiVersion: 'v1',
+      kind: 'Secret',
+      metadata: {
+        name: secretName,
+        namespace: namespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+          'app.kubernetes.io/component': 'database',
+          'tenant': namespace
+        }
+      },
+      type: 'Opaque',
+      stringData: {
+        'MONGODB_URI': connectionString,  // Primary - used by educationelly-graphql-server
+        'MONGO_URI': connectionString,    // Alternate naming
+        'MONGO_USERNAME': username,
+        'MONGO_PASSWORD': password,
+        'MONGO_DATABASE': databaseName
+      }
+    };
+
+    try {
+      // Use kubectl to create secret
+      const secretJson = JSON.stringify(secret);
+      const applyCmd = `echo '${secretJson}' | kubectl apply -f -`;
+      await execAsync(applyCmd);
+
+      return { message: `Secret ${secretName} created successfully` };
+    } catch (error) {
+      throw new Error(`Failed to create secret: ${error.message}`);
+    }
+  }
+
+  // Get a secret from a namespace
+  async getSecret(namespace, secretName) {
+    try {
+      const getCmd = `kubectl get secret ${secretName} -n ${namespace} -o json`;
+      const { stdout } = await execAsync(getCmd);
+      return JSON.parse(stdout);
+    } catch (error) {
+      if (error.message.includes('NotFound') || error.message.includes('not found')) {
+        return null;
+      }
+      throw new Error(`Failed to get secret: ${error.message}`);
+    }
+  }
+
+  // Delete a secret from a namespace
+  async deleteSecret(namespace, secretName) {
+    try {
+      const deleteCmd = `kubectl delete secret ${secretName} -n ${namespace}`;
+      await execAsync(deleteCmd);
+      return { message: `Secret ${secretName} deleted successfully` };
+    } catch (error) {
+      if (error.message.includes('NotFound') || error.message.includes('not found')) {
+        return { message: `Secret already deleted or doesn't exist` };
+      }
+      throw new Error(`Failed to delete secret: ${error.message}`);
+    }
+  }
+
+  // Update deployment to use environment variables from secret
+  async updateDeploymentWithSecret(namespace, deploymentName, secretName) {
+    try {
+      // Get current deployment
+      const getCmd = `kubectl get deployment ${deploymentName} -n ${namespace} -o json`;
+      const { stdout } = await execAsync(getCmd);
+      const deployment = JSON.parse(stdout);
+
+      // Update container env to use secretRef
+      if (deployment.spec.template.spec.containers[0]) {
+        deployment.spec.template.spec.containers[0].envFrom = [
+          {
+            secretRef: {
+              name: secretName
+            }
+          }
+        ];
+
+        // Apply updated deployment
+        const deploymentJson = JSON.stringify(deployment);
+        const applyCmd = `echo '${deploymentJson}' | kubectl apply -f -`;
+        await execAsync(applyCmd);
+
+        return { message: `Deployment ${deploymentName} updated to use secret ${secretName}` };
+      }
+
+      throw new Error('No containers found in deployment');
+    } catch (error) {
+      throw new Error(`Failed to update deployment with secret: ${error.message}`);
     }
   }
 }
