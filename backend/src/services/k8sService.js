@@ -38,8 +38,23 @@ class K8sService {
     }
   }
 
+  // Helper to convert memory format (GB -> Gi)
+  normalizeMemory(memory) {
+    if (!memory) return '4Gi';
+    // If already in Kubernetes format, return as is
+    if (memory.match(/^[0-9]+[KMGT]i?$/)) return memory;
+    // Convert GB to Gi
+    if (memory.match(/^[0-9]+GB$/i)) {
+      const value = parseInt(memory);
+      return `${value}Gi`;
+    }
+    return memory;
+  }
+
   // Create resource quota for a namespace
   async createResourceQuota(namespace, quota) {
+    const normalizedMemory = this.normalizeMemory(quota.memory);
+
     const resourceQuota = {
       apiVersion: 'v1',
       kind: 'ResourceQuota',
@@ -50,9 +65,9 @@ class K8sService {
       spec: {
         hard: {
           'requests.cpu': quota.cpu || '2',
-          'requests.memory': quota.memory || '4Gi',
+          'requests.memory': normalizedMemory,
           'limits.cpu': quota.cpu || '2',
-          'limits.memory': quota.memory || '4Gi',
+          'limits.memory': normalizedMemory,
           'persistentvolumeclaims': '5',
           'pods': '10'
         }
@@ -72,32 +87,42 @@ class K8sService {
   async deployEducationelly(namespace, config = {}) {
     const {
       replicas = 1,
-      serverImage = 'maxjeffwell/educationelly-graphql-server:latest',
-      clientImage = 'maxjeffwell/educationelly-graphql-client:latest',
-      serverPort = 4000,
-      clientPort = 3000,
+      appType = 'graphql', // 'graphql' or 'rest'
+      serverImage = null,
+      clientImage = null,
+      serverPort = null,
+      clientPort = null,
       env = [],
-      databaseSecretName = null
+      databaseSecretName = null,
+      graphqlEndpoint = null // Public GraphQL endpoint URL
     } = config;
+
+    // Set defaults based on app type
+    const isGraphQL = appType === 'graphql';
+    const finalServerImage = serverImage || (isGraphQL ? 'maxjeffwell/educationelly-graphql-server:latest' : 'maxjeffwell/educationelly-server:latest');
+    const finalClientImage = clientImage || (isGraphQL ? 'maxjeffwell/educationelly-graphql-client:latest' : 'maxjeffwell/educationelly-client:latest');
+    const finalServerPort = serverPort || (isGraphQL ? 4000 : 8080);
+    const finalClientPort = clientPort || (isGraphQL ? 3000 : 3000);
+    const appPrefix = isGraphQL ? 'educationelly-graphql' : 'educationelly';
 
     try {
       // Check if database secret exists in namespace
       const secretName = databaseSecretName || `${namespace}-mongodb-secret`;
       const secretExists = await this.getSecret(namespace, secretName);
 
-      // Deploy GraphQL Server with database secret if available
+      // Deploy Server with database secret if available
       const serverDeployment = await this.createDeployment(
         namespace,
-        'educationelly-graphql-server',
-        serverImage,
-        serverPort,
+        `${appPrefix}-server`,
+        finalServerImage,
+        finalServerPort,
         replicas,
         env,
         secretExists ? secretName : null
       );
 
       // Create service for server
-      await this.createService(namespace, 'educationelly-graphql-server', serverPort);
+      await this.createService(namespace, `${appPrefix}-server`, finalServerPort);
 
       // Deploy Client Frontend (doesn't need database access)
       // Security context allows nginx to bind to privileged ports
@@ -106,19 +131,28 @@ class K8sService {
         allowPrivilegeEscalation: true
       };
 
+      // Add GRAPHQL_ENDPOINT environment variable for client
+      const clientEnv = [...env];
+      if (graphqlEndpoint) {
+        clientEnv.push({
+          name: 'GRAPHQL_ENDPOINT',
+          value: graphqlEndpoint
+        });
+      }
+
       const clientDeployment = await this.createDeployment(
         namespace,
-        'educationelly-graphql-client',
-        clientImage,
-        clientPort,
+        `${appPrefix}-client`,
+        finalClientImage,
+        finalClientPort,
         replicas,
-        env,
+        clientEnv,
         null, // Client doesn't need database secret
         clientSecurityContext
       );
 
       // Create service for client
-      await this.createService(namespace, 'educationelly-graphql-client', clientPort);
+      await this.createService(namespace, `${appPrefix}-client`, finalClientPort);
 
       return {
         server: serverDeployment.body,
@@ -345,6 +379,50 @@ class K8sService {
     }
   }
 
+  // Get resource quota for a namespace
+  async getResourceQuota(namespace) {
+    try {
+      const quotaResult = await execAsync(`microk8s kubectl get resourcequota ${namespace}-quota -n ${namespace} -o json`);
+      return JSON.parse(quotaResult.stdout);
+    } catch (error) {
+      // Quota might not exist
+      return null;
+    }
+  }
+
+  // Update resource quota for a namespace
+  async updateResourceQuota(namespace, quota) {
+    const normalizedMemory = this.normalizeMemory(quota.memory);
+
+    const resourceQuota = {
+      apiVersion: 'v1',
+      kind: 'ResourceQuota',
+      metadata: {
+        name: `${namespace}-quota`,
+        namespace: namespace
+      },
+      spec: {
+        hard: {
+          'requests.cpu': quota.cpu || '2',
+          'requests.memory': normalizedMemory,
+          'limits.cpu': quota.cpu || '2',
+          'limits.memory': normalizedMemory,
+          'persistentvolumeclaims': '5',
+          'pods': '10'
+        }
+      }
+    };
+
+    try {
+      const quotaJson = JSON.stringify(resourceQuota);
+      const applyCmd = `echo '${quotaJson}' | kubectl apply -f -`;
+      await execAsync(applyCmd);
+      return resourceQuota.spec.hard;
+    } catch (error) {
+      throw new Error(`Failed to update resource quota: ${error.message}`);
+    }
+  }
+
   // Delete a tenant namespace (this will delete all resources in it)
   async deleteTenant(namespace) {
     try {
@@ -520,7 +598,11 @@ class K8sService {
         const { stdout: logs } = await execAsync(logsCmd);
 
         // Check for MongoDB connection indicators
-        const hasMongoConnection = logs.includes('MongoDB') || logs.includes('mongoose') || logs.includes('Connected to');
+        const hasMongoConnection = logs.includes('MongoDB') ||
+                                   logs.includes('mongoose') ||
+                                   logs.includes('Connected to') ||
+                                   logs.includes('Database: Connected') ||
+                                   /Database.*Connected/i.test(logs);
         const hasMongoError = logs.includes('MongoServerError') ||
                              logs.includes('MongooseServerSelectionError') ||
                              logs.includes('Authentication failed') ||

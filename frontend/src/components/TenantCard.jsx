@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { tenantApi, deploymentApi } from '../services/api';
+import { tenantApi, deploymentApi, databaseApi } from '../services/api';
 import DeploymentControls from './DeploymentControls';
 
 function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
@@ -7,6 +7,9 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [enablingDatabase, setEnablingDatabase] = useState(false);
+  const [editingQuota, setEditingQuota] = useState(false);
+  const [quotaForm, setQuotaForm] = useState({ cpu: '', memory: '' });
 
   useEffect(() => {
     if (isExpanded && !details) {
@@ -45,6 +48,57 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
       setDeleting(false);
     }
     // Don't set deleting to false on success - let the component unmount
+  };
+
+  const handleEnableDatabase = async () => {
+    if (!hasDeployments) {
+      alert('Please deploy an application first before enabling the database.');
+      return;
+    }
+
+    if (!confirm(`Enable auto-provisioned database for "${tenant.name}"? This will:\n- Create a MongoDB database and user\n- Configure credentials automatically\n- Restart pods to apply changes`)) {
+      return;
+    }
+
+    setEnablingDatabase(true);
+    try {
+      await databaseApi.enableDatabase(tenant.name);
+      alert('Database enabled successfully! Pods are restarting...');
+      // Refresh tenant details to show new database
+      await fetchTenantDetails();
+    } catch (err) {
+      alert('Failed to enable database: ' + err.message);
+    } finally {
+      setEnablingDatabase(false);
+    }
+  };
+
+  const handleEditQuota = () => {
+    setQuotaForm({
+      cpu: tenant.cpu || '2',
+      memory: tenant.memory || '4Gi'
+    });
+    setEditingQuota(true);
+  };
+
+  const handleUpdateQuota = async (e) => {
+    e.preventDefault();
+
+    if (!quotaForm.cpu || !quotaForm.memory) {
+      alert('Please provide both CPU and memory values');
+      return;
+    }
+
+    try {
+      await tenantApi.updateTenant(tenant.name, quotaForm);
+      alert('Resource quota updated successfully!');
+      setEditingQuota(false);
+      // Refresh parent to show updated quotas
+      onDeleted(null); // This triggers parent refresh without deleting
+      window.location.reload(); // Reload to show updated values
+    } catch (err) {
+      alert('Failed to update quota: ' + err.message);
+    }
   };
 
   const hasDeployments = details?.deployments && details.deployments.length > 0;
@@ -145,7 +199,6 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
                           )}
                         </div>
                         <div className="database-details">
-                          <span>Username: {details.database.username}</span>
                           {details.database.connection?.message && (
                             <span className="connection-message">
                               {details.database.connection.message}
@@ -155,7 +208,17 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
                       </>
                     ) : (
                       <div className="database-not-configured">
-                        No database configured
+                        <p>No database configured</p>
+                        <button
+                          className="btn-primary btn-enable-database"
+                          onClick={handleEnableDatabase}
+                          disabled={enablingDatabase || !hasDeployments}
+                        >
+                          {enablingDatabase ? 'Enabling...' : 'Enable Database'}
+                        </button>
+                        {!hasDeployments && (
+                          <p className="database-hint">Deploy an application first</p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -201,35 +264,35 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
                 </div>
               )}
 
-              {metrics && (
+              {metrics && metrics.pods && (
                 <div className="metrics-section">
                   <h4>Resource Usage</h4>
                   <div className="metrics-grid">
                     <div className="metric">
                       <span className="metric-label">Total Pods:</span>
-                      <span className="metric-value">{metrics.metrics.pods.total}</span>
+                      <span className="metric-value">{metrics.pods.total}</span>
                     </div>
                     <div className="metric">
                       <span className="metric-label">Running:</span>
-                      <span className="metric-value running">{metrics.metrics.pods.running}</span>
+                      <span className="metric-value running">{metrics.pods.running}</span>
                     </div>
                     <div className="metric">
                       <span className="metric-label">Pending:</span>
-                      <span className="metric-value pending">{metrics.metrics.pods.pending}</span>
+                      <span className="metric-value pending">{metrics.pods.pending}</span>
                     </div>
                     <div className="metric">
                       <span className="metric-label">Failed:</span>
-                      <span className="metric-value failed">{metrics.metrics.pods.failed}</span>
+                      <span className="metric-value failed">{metrics.pods.failed}</span>
                     </div>
                   </div>
                 </div>
               )}
 
-              {details?.pods && details.pods.length > 0 && (
+              {metrics?.podsList && metrics.podsList.length > 0 && (
                 <div className="pods-section">
                   <h4>Pods</h4>
                   <div className="pods-list">
-                    {details.pods.map((pod) => (
+                    {metrics.podsList.map((pod) => (
                       <div key={pod.name} className="pod-info">
                         <span className="pod-name">{pod.name}</span>
                         <span className={`pod-status ${pod.status.toLowerCase()}`}>
@@ -242,9 +305,52 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
                 </div>
               )}
 
+              {editingQuota && (
+                <div className="edit-quota-form">
+                  <h4>Edit Resource Quota</h4>
+                  <form onSubmit={handleUpdateQuota}>
+                    <div className="form-group">
+                      <label>CPU Cores</label>
+                      <input
+                        type="text"
+                        value={quotaForm.cpu}
+                        onChange={(e) => setQuotaForm({ ...quotaForm, cpu: e.target.value })}
+                        placeholder="e.g., 2 or 500m"
+                        className="form-input"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Memory</label>
+                      <input
+                        type="text"
+                        value={quotaForm.memory}
+                        onChange={(e) => setQuotaForm({ ...quotaForm, memory: e.target.value })}
+                        placeholder="e.g., 4Gi or 2048Mi"
+                        className="form-input"
+                      />
+                    </div>
+                    <div className="form-actions">
+                      <button type="submit" className="btn-primary">
+                        Update
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setEditingQuota(false)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
               <div className="tenant-actions">
                 <button className="btn-secondary" onClick={fetchTenantDetails}>
                   Refresh
+                </button>
+                <button className="btn-secondary" onClick={handleEditQuota}>
+                  Edit Quota
                 </button>
                 <button
                   className="btn-danger"

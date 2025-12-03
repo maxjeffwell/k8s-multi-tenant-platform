@@ -6,7 +6,7 @@ class TenantController {
   // Create a new tenant
   async createTenant(req, res) {
     try {
-      const { tenantName, resourceQuota, createDatabase = true } = req.body;
+      const { tenantName, resourceQuota, database } = req.body;
 
       if (!tenantName) {
         return res.status(400).json({ error: 'Tenant name is required' });
@@ -31,50 +31,54 @@ class TenantController {
         }
       };
 
-      // Automatically provision database if Atlas is configured and createDatabase is true
-      if (createDatabase && atlasService.isConfigured()) {
+      // Configure database if provided
+      if (database && database.mongoUri) {
         try {
-          // Create database user in Atlas
-          const dbUser = await atlasService.createDatabaseUser(tenantName);
-
-          // Generate connection string
-          const connectionString = atlasService.getConnectionString(
-            dbUser.username,
-            dbUser.password,
-            dbUser.databaseName
-          );
-
-          // Store credentials in Kubernetes Secret
           const secretName = `${tenantName}-mongodb-secret`;
+
+          // Extract credentials from URI if not provided
+          let username = database.username || '';
+          let password = database.password || '';
+          let databaseName = database.databaseName || '';
+
+          // Try to parse from URI if not provided
+          if (!username && database.mongoUri.includes('@')) {
+            const match = database.mongoUri.match(/mongodb\+srv:\/\/([^:]+):([^@]+)@/);
+            if (match) {
+              username = match[1];
+              password = match[2];
+            }
+            // Extract database name from URI
+            const dbMatch = database.mongoUri.match(/\.net\/([^?]+)/);
+            if (dbMatch) {
+              databaseName = dbMatch[1];
+            }
+          }
+
           await k8sService.createDatabaseSecret(
             tenantName,
             secretName,
-            connectionString,
-            dbUser.username,
-            dbUser.password,
-            dbUser.databaseName
+            database.mongoUri,
+            username,
+            password,
+            databaseName
           );
 
           response.database = {
-            created: true,
-            name: dbUser.databaseName,
-            username: dbUser.username,
+            configured: true,
+            name: databaseName,
+            username: username,
             secretName: secretName
           };
-          response.message = 'Tenant and database created successfully';
+          response.message = 'Tenant and database configured successfully';
         } catch (dbError) {
-          console.error('Database creation failed:', dbError);
+          console.error('Database configuration failed:', dbError);
           response.database = {
-            created: false,
-            error: 'Database creation failed. You can create it manually later.',
+            configured: false,
+            error: 'Database configuration failed.',
             details: dbError.message
           };
         }
-      } else if (createDatabase && !atlasService.isConfigured()) {
-        response.database = {
-          created: false,
-          message: 'MongoDB Atlas not configured. Configure Atlas to enable automatic database provisioning.'
-        };
       }
 
       res.status(201).json(response);
@@ -88,11 +92,30 @@ class TenantController {
     try {
       const namespaces = await k8sService.listTenants();
 
-      const tenants = namespaces.map(ns => ({
-        name: ns.metadata.name,
-        status: ns.status.phase,
-        createdAt: ns.metadata.creationTimestamp,
-        labels: ns.metadata.labels
+      const tenants = await Promise.all(namespaces.map(async ns => {
+        const tenantName = ns.metadata.name;
+
+        // Get resource quota to extract cpu/memory
+        let cpu = '0';
+        let memory = '0Gi';
+        try {
+          const quota = await k8sService.getResourceQuota(tenantName);
+          if (quota && quota.spec && quota.spec.hard) {
+            cpu = quota.spec.hard['requests.cpu'] || quota.spec.hard['limits.cpu'] || '0';
+            memory = quota.spec.hard['requests.memory'] || quota.spec.hard['limits.memory'] || '0Gi';
+          }
+        } catch (err) {
+          // Quota might not exist, use defaults
+        }
+
+        return {
+          name: tenantName,
+          status: ns.status.phase,
+          createdAt: ns.metadata.creationTimestamp,
+          labels: ns.metadata.labels,
+          cpu: cpu,
+          memory: memory
+        };
       }));
 
       res.json({ tenants });
@@ -174,8 +197,49 @@ class TenantController {
     try {
       const { tenantName } = req.params;
       const metrics = await k8sService.getNamespaceMetrics(tenantName);
+      const details = await k8sService.getTenantDetails(tenantName);
 
-      res.json({ metrics });
+      // Add deployments and detailed pods list to metrics
+      metrics.deployments = details.deployments.map(d => ({
+        name: d.metadata.name,
+        replicas: d.spec.replicas,
+        availableReplicas: d.status.availableReplicas || 0,
+        image: d.spec.template.spec.containers[0].image
+      }));
+
+      metrics.podsList = details.pods.map(p => ({
+        name: p.metadata.name,
+        status: p.status.phase,
+        labels: p.metadata.labels,
+        restarts: p.status.containerStatuses?.[0]?.restartCount || 0
+      }));
+
+      res.json(metrics);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  // Update a tenant (resource quotas)
+  async updateTenant(req, res) {
+    try {
+      const { tenantName } = req.params;
+      const { resourceQuota } = req.body;
+
+      if (!resourceQuota) {
+        return res.status(400).json({ error: 'Resource quota is required' });
+      }
+
+      // Update the resource quota
+      const result = await k8sService.updateResourceQuota(tenantName, resourceQuota);
+
+      res.json({
+        message: 'Tenant updated successfully',
+        tenant: {
+          name: tenantName,
+          resourceQuota: result
+        }
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

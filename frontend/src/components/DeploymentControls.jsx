@@ -2,14 +2,32 @@ import { useState } from 'react';
 import { deploymentApi } from '../services/api';
 
 function DeploymentControls({ tenantName, onDeploymentCreated }) {
+  const [appType, setAppType] = useState('graphql');
   const [replicas, setReplicas] = useState(1);
   const [serverImage, setServerImage] = useState('maxjeffwell/educationelly-graphql-server:latest');
   const [clientImage, setClientImage] = useState('maxjeffwell/educationelly-graphql-client:latest');
   const [serverPort, setServerPort] = useState(4000);
   const [clientPort, setClientPort] = useState(3000);
-  const [envVars, setEnvVars] = useState('GRAPHQL_ENDPOINT=http://educationelly-graphql-server:4000/graphql');
+  const [envVars, setEnvVars] = useState('');
   const [deploying, setDeploying] = useState(false);
   const [error, setError] = useState(null);
+
+  const handleAppTypeChange = (type) => {
+    setAppType(type);
+    if (type === 'graphql') {
+      setServerImage('maxjeffwell/educationelly-graphql-server:latest');
+      setClientImage('maxjeffwell/educationelly-graphql-client:latest');
+      setServerPort(4000);
+      setClientPort(3000);
+      setEnvVars('');
+    } else {
+      setServerImage('maxjeffwell/educationelly-server:latest');
+      setClientImage('maxjeffwell/educationelly-client:latest');
+      setServerPort(8080);
+      setClientPort(3000);
+      setEnvVars('');
+    }
+  };
 
   const handleDeploy = async (e) => {
     e.preventDefault();
@@ -27,6 +45,7 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
         });
 
       await deploymentApi.deployApp(tenantName, {
+        appType,
         replicas: parseInt(replicas),
         serverImage,
         clientImage,
@@ -45,8 +64,32 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
 
   return (
     <div className="deployment-controls">
-      <h4>Deploy educationelly-graphql (Server + Client)</h4>
+      <h4>Deploy educationELLy Application (Server + Client)</h4>
       <form onSubmit={handleDeploy}>
+        <div className="form-group">
+          <label>Application Type:</label>
+          <div className="radio-group">
+            <label className="radio-label">
+              <input
+                type="radio"
+                value="graphql"
+                checked={appType === 'graphql'}
+                onChange={(e) => handleAppTypeChange(e.target.value)}
+              />
+              GraphQL Version (Apollo Server + React)
+            </label>
+            <label className="radio-label">
+              <input
+                type="radio"
+                value="rest"
+                checked={appType === 'rest'}
+                onChange={(e) => handleAppTypeChange(e.target.value)}
+              />
+              REST API Version (Express + React)
+            </label>
+          </div>
+        </div>
+
         <div className="form-group">
           <label htmlFor="replicas">Replicas (per service):</label>
           <input
@@ -114,15 +157,15 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
         </div>
 
         <div className="form-group">
-          <label htmlFor="envVars">Environment Variables (applied to both):</label>
+          <label htmlFor="envVars">Environment Variables (optional):</label>
           <textarea
             id="envVars"
             value={envVars}
             onChange={(e) => setEnvVars(e.target.value)}
-            placeholder="GRAPHQL_ENDPOINT=http://educationelly-graphql-server:4000/graphql&#10;NODE_ENV=production"
+            placeholder="NODE_ENV=production&#10;LOG_LEVEL=info"
             rows="4"
           />
-          <small>Format: KEY=value (one per line)</small>
+          <small>Format: KEY=value (one per line). API endpoint is auto-configured.</small>
         </div>
 
         {error && <div className="error-message">{error}</div>}

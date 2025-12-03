@@ -4,6 +4,9 @@ import cors from 'cors';
 import tenantRoutes from './routes/tenantRoutes.js';
 import deploymentRoutes from './routes/deploymentRoutes.js';
 import databaseRoutes from './routes/databaseRoutes.js';
+import prometheusRoutes from './routes/prometheusRoutes.js';
+import metricsRoutes from './routes/metrics.js';
+import grafanaRoutes from './routes/grafanaRoutes.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,6 +29,9 @@ app.get('/health', (req, res) => {
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/deployments', deploymentRoutes);
 app.use('/api/database', databaseRoutes);
+app.use('/api/prometheus', prometheusRoutes);
+app.use('/api/metrics', metricsRoutes);
+app.use('/api/grafana', grafanaRoutes);
 
 // Error handling
 app.use((err, req, res, next) => {

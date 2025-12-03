@@ -1,0 +1,155 @@
+{
+  "dashboard": {
+    "title": "Multi-Tenant Service Topology",
+    "tags": ["kubernetes", "topology", "multi-tenant"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Service Topology Map",
+        "type": "nodeGraph",
+        "gridPos": {
+          "h": 12,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "sum by (namespace, service, pod) (rate(container_network_transmit_bytes_total[5m]))",
+            "refId": "A",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "nodes": {
+            "mainStatUnit": "bytes",
+            "secondaryStatUnit": "percent"
+          },
+          "edges": {
+            "mainStatUnit": "Bps"
+          }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {}
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 2,
+        "title": "Pod Network Traffic",
+        "type": "nodeGraph",
+        "gridPos": {
+          "h": 12,
+          "w": 24,
+          "x": 0,
+          "y": 12
+        },
+        "targets": [
+          {
+            "expr": "sum by (namespace, pod) (rate(container_network_receive_bytes_total{namespace=~\"test-school.*\"}[5m]))",
+            "refId": "A",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "nodes": {
+            "mainStatUnit": "Bps"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Service Dependencies by Namespace",
+        "type": "nodeGraph",
+        "gridPos": {
+          "h": 12,
+          "w": 24,
+          "x": 0,
+          "y": 24
+        },
+        "targets": [
+          {
+            "expr": "sum by (source_namespace, destination_namespace, source_service, destination_service) (rate(istio_requests_total[5m]))",
+            "refId": "A",
+            "format": "table",
+            "legendFormat": "{{source_service}} -> {{destination_service}}"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "indexByName": {},
+              "renameByName": {
+                "source_namespace": "source",
+                "destination_namespace": "target"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Tenant Resource Relationships",
+        "type": "graph",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 36
+        },
+        "targets": [
+          {
+            "expr": "sum by (namespace) (kube_pod_info{namespace=~\"test-school.*\"})",
+            "refId": "A",
+            "legendFormat": "{{namespace}}"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Service Endpoints",
+        "type": "table",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 36
+        },
+        "targets": [
+          {
+            "expr": "kube_service_info{namespace=~\"test-school.*\"}",
+            "refId": "A",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true,
+                "__name__": true,
+                "job": true
+              },
+              "indexByName": {},
+              "renameByName": {
+                "namespace": "Namespace",
+                "service": "Service"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}

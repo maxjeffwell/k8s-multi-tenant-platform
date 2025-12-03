@@ -10,6 +10,14 @@ class IngressService {
   }
 
   /**
+   * Generate the ingress host domain
+   * @returns {string} - Base ingress domain
+   */
+  generateIngressHost() {
+    return this.ingressDomain;
+  }
+
+  /**
    * Get the full URL for a tenant
    * @param {string} tenantName - Name of the tenant
    * @param {string} serviceName - Name of the service (default: educationelly-graphql-client)

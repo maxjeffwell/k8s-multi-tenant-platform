@@ -6,13 +6,20 @@ class DeploymentController {
   async deployApp(req, res) {
     try {
       const { tenantName } = req.params;
-      const { replicas, serverImage, clientImage, env } = req.body;
+      const { replicas, serverImage, clientImage, env, appType } = req.body;
+
+      // Generate ingress URLs that will be created
+      const ingressHost = ingressService.generateIngressHost();
+      const serverIngressUrl = `http://${tenantName}-api.${ingressHost}`;
+      const graphqlEndpoint = `${serverIngressUrl}/graphql`;
 
       const config = {
         replicas: replicas || 1,
+        appType: appType || 'graphql',
         serverImage,
         clientImage,
-        env: env || []
+        env: env || [],
+        graphqlEndpoint // Pass the public GraphQL endpoint URL
       };
 
       const result = await k8sService.deployEducationelly(tenantName, config);
@@ -22,18 +29,24 @@ class DeploymentController {
       let serverIngress = null;
 
       try {
+        // Determine service names based on app type
+        const isGraphQL = (appType || 'graphql') === 'graphql';
+        const appPrefix = isGraphQL ? 'educationelly-graphql' : 'educationelly';
+        const serverPort = isGraphQL ? 4000 : 8080;
+        const clientPort = 3000; // Same for both types
+
         // Create ingress for client (frontend)
         clientIngress = await ingressService.createClientIngress(
           tenantName,
-          'educationelly-graphql-client',
-          3000
+          `${appPrefix}-client`,
+          clientPort
         );
 
-        // Create ingress for server (GraphQL API)
+        // Create ingress for server (API)
         serverIngress = await ingressService.createServerIngress(
           tenantName,
-          'educationelly-graphql-server',
-          4000
+          `${appPrefix}-server`,
+          serverPort
         );
       } catch (ingressError) {
         console.error('Failed to create ingress:', ingressError);

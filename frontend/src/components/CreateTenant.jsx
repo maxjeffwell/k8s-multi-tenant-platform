@@ -5,8 +5,32 @@ function CreateTenant({ onSuccess, onCancel }) {
   const [tenantName, setTenantName] = useState('');
   const [cpu, setCpu] = useState('2');
   const [memory, setMemory] = useState('4Gi');
+  const [configureDatabase, setConfigureDatabase] = useState(false);
+  const [databaseOption, setDatabaseOption] = useState('graphql-test');
+  const [customMongoUri, setCustomMongoUri] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const databaseOptions = {
+    'graphql-test': {
+      label: 'GraphQL Database (test)',
+      uri: 'mongodb+srv://maxjeffwell:REDACTED_PASSWORD@educationelly-db-graphq.xmgkwdh.mongodb.net/test',
+      username: 'maxjeffwell',
+      password: 'REDACTED_PASSWORD',
+      database: 'test'
+    },
+    'rest-educationelly': {
+      label: 'REST API Database (educationelly-db)',
+      uri: 'mongodb+srv://maxjeffwell:REDACTED_PASSWORD@educationelly-db.92qr2ay.mongodb.net/educationelly-db?appName=educationelly-db',
+      username: 'maxjeffwell',
+      password: 'REDACTED_PASSWORD',
+      database: 'educationelly-db'
+    },
+    'custom': {
+      label: 'Custom MongoDB URI',
+      uri: null
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -14,7 +38,29 @@ function CreateTenant({ onSuccess, onCancel }) {
     setError(null);
 
     try {
-      await tenantApi.createTenant(tenantName, { cpu, memory });
+      const tenantConfig = { cpu, memory };
+
+      // Add database configuration if enabled
+      if (configureDatabase) {
+        const selectedDb = databaseOptions[databaseOption];
+        if (databaseOption === 'custom') {
+          if (!customMongoUri) {
+            setError('Please enter a custom MongoDB URI');
+            setLoading(false);
+            return;
+          }
+          tenantConfig.database = { mongoUri: customMongoUri };
+        } else {
+          tenantConfig.database = {
+            mongoUri: selectedDb.uri,
+            username: selectedDb.username,
+            password: selectedDb.password,
+            databaseName: selectedDb.database
+          };
+        }
+      }
+
+      await tenantApi.createTenant(tenantName, tenantConfig);
       onSuccess();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to create tenant');
@@ -65,6 +111,59 @@ function CreateTenant({ onSuccess, onCancel }) {
             />
           </div>
         </div>
+
+        <div className="form-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={configureDatabase}
+              onChange={(e) => setConfigureDatabase(e.target.checked)}
+            />
+            Configure Database Connection
+          </label>
+        </div>
+
+        {configureDatabase && (
+          <div className="database-config-section">
+            <div className="form-group">
+              <label htmlFor="databaseOption">Select Database:</label>
+              <select
+                id="databaseOption"
+                value={databaseOption}
+                onChange={(e) => setDatabaseOption(e.target.value)}
+                className="form-select"
+              >
+                {Object.entries(databaseOptions).map(([key, option]) => (
+                  <option key={key} value={key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {databaseOption === 'custom' && (
+              <div className="form-group">
+                <label htmlFor="customMongoUri">Custom MongoDB URI:</label>
+                <input
+                  type="text"
+                  id="customMongoUri"
+                  value={customMongoUri}
+                  onChange={(e) => setCustomMongoUri(e.target.value)}
+                  placeholder="mongodb+srv://username:password@cluster.mongodb.net/database"
+                  required
+                />
+                <small>Enter the full MongoDB connection string</small>
+              </div>
+            )}
+
+            {databaseOption !== 'custom' && (
+              <div className="database-info-preview">
+                <p><strong>Database:</strong> {databaseOptions[databaseOption].database}</p>
+                <p><small>This database will be configured for this tenant's applications</small></p>
+              </div>
+            )}
+          </div>
+        )}
 
         {error && <div className="error-message">{error}</div>}
 

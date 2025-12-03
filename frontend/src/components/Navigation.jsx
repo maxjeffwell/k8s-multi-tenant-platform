@@ -5,7 +5,7 @@ function Navigation() {
   return (
     <nav className="navigation">
       <div className="nav-brand">
-        <h2>Multi-Tenant Platform</h2>
+        <h2>TenantFlow: A Multi-Tenant Platform</h2>
       </div>
       <div className="nav-links">
         <NavLink
