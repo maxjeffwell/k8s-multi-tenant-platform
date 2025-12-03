@@ -4,9 +4,9 @@ import { deploymentApi } from '../services/api';
 function DeploymentControls({ tenantName, onDeploymentCreated }) {
   const [appType, setAppType] = useState('graphql');
   const [replicas, setReplicas] = useState(1);
-  const [serverImage, setServerImage] = useState('maxjeffwell/educationelly-graphql-server:latest');
+  const [serverImage, setServerImage] = useState('maxjeffwell/educationelly-graphql-api:latest');
   const [clientImage, setClientImage] = useState('maxjeffwell/educationelly-graphql-client:latest');
-  const [serverPort, setServerPort] = useState(4000);
+  const [serverPort, setServerPort] = useState(8000);
   const [clientPort, setClientPort] = useState(3000);
   const [envVars, setEnvVars] = useState('');
   const [deploying, setDeploying] = useState(false);
@@ -15,16 +15,16 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
   const handleAppTypeChange = (type) => {
     setAppType(type);
     if (type === 'graphql') {
-      setServerImage('maxjeffwell/educationelly-graphql-server:latest');
+      setServerImage('maxjeffwell/educationelly-graphql-api:latest');
       setClientImage('maxjeffwell/educationelly-graphql-client:latest');
-      setServerPort(4000);
+      setServerPort(8000);
       setClientPort(3000);
       setEnvVars('');
     } else {
-      setServerImage('maxjeffwell/educationelly-server:latest');
+      setServerImage('maxjeffwell/educationelly-api:latest');
       setClientImage('maxjeffwell/educationelly-client:latest');
       setServerPort(8080);
-      setClientPort(3000);
+      setClientPort(5000);
       setEnvVars('');
     }
   };
