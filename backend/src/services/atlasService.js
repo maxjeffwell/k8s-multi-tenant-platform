@@ -153,6 +153,49 @@ class AtlasService {
   }
 
   /**
+   * Add an IP address to Atlas access list
+   * @param {string} ipAddress - IP address to whitelist (or '0.0.0.0/0' for all)
+   * @param {string} comment - Comment for the IP entry
+   */
+  async addIPToAccessList(ipAddress, comment = 'Auto-added by platform') {
+    try {
+      const accessListEntry = {
+        ipAddress: ipAddress,
+        comment: comment
+      };
+
+      const response = await this.makeRequest(
+        `/groups/${this.projectId}/accessList`,
+        {
+          method: 'POST',
+          body: JSON.stringify([accessListEntry])
+        }
+      );
+
+      return response;
+    } catch (error) {
+      // If already exists, that's okay
+      if (error.message.includes('DUPLICATE_ENTRY') || error.message.includes('409')) {
+        return { message: 'IP already in access list' };
+      }
+      throw new Error(`Failed to add IP to access list: ${error.message}`);
+    }
+  }
+
+  /**
+   * Ensure all-access is enabled (0.0.0.0/0)
+   * Useful for development environments
+   */
+  async ensureAllAccessEnabled() {
+    try {
+      await this.addIPToAccessList('0.0.0.0/0', 'Allow access from anywhere');
+      return { message: 'All-access enabled successfully' };
+    } catch (error) {
+      throw new Error(`Failed to enable all-access: ${error.message}`);
+    }
+  }
+
+  /**
    * Check if Atlas configuration is valid
    * @returns {boolean}
    */
