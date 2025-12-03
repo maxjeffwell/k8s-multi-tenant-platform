@@ -606,9 +606,15 @@ class K8sService {
   // Check database connection status by examining pod logs
   async checkDatabaseConnection(namespace) {
     try {
-      // Get pods in the namespace that match the server deployment
-      const podsResult = await execAsync(`kubectl get pods -n ${namespace} -l app=educationelly-graphql-server -o json`);
-      const pods = JSON.parse(podsResult.stdout);
+      // Get pods in the namespace that match either GraphQL or REST server deployment
+      let podsResult = await execAsync(`kubectl get pods -n ${namespace} -l app=educationelly-graphql-server -o json`);
+      let pods = JSON.parse(podsResult.stdout);
+
+      // If no GraphQL server pods found, try REST API server
+      if (!pods.items || pods.items.length === 0) {
+        podsResult = await execAsync(`kubectl get pods -n ${namespace} -l app=educationelly-server -o json`);
+        pods = JSON.parse(podsResult.stdout);
+      }
 
       if (!pods.items || pods.items.length === 0) {
         return {
