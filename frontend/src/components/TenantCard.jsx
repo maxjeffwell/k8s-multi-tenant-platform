@@ -8,6 +8,10 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [enablingDatabase, setEnablingDatabase] = useState(false);
+  const [showDatabaseDialog, setShowDatabaseDialog] = useState(false);
+  const [selectedDatabase, setSelectedDatabase] = useState('test');
+  const [availableDatabases, setAvailableDatabases] = useState([]);
+  const [loadingDatabases, setLoadingDatabases] = useState(false);
   const [editingQuota, setEditingQuota] = useState(false);
   const [quotaForm, setQuotaForm] = useState({ cpu: '', memory: '' });
 
@@ -56,15 +60,30 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
       return;
     }
 
-    if (!confirm(`Enable auto-provisioned database for "${tenant.name}"? This will:\n- Create a MongoDB database and user\n- Configure credentials automatically\n- Restart pods to apply changes`)) {
-      return;
-    }
-
-    setEnablingDatabase(true);
+    // Fetch available databases from backend
+    setLoadingDatabases(true);
     try {
-      await databaseApi.enableDatabase(tenant.name);
+      const response = await databaseApi.getAvailableDatabases();
+      setAvailableDatabases(response.databases || []);
+      if (response.databases && response.databases.length > 0) {
+        setSelectedDatabase(response.databases[0].key);
+      }
+      setShowDatabaseDialog(true);
+    } catch (err) {
+      alert('Failed to load database options: ' + err.message);
+    } finally {
+      setLoadingDatabases(false);
+    }
+  };
+
+  const confirmEnableDatabase = async () => {
+    setShowDatabaseDialog(false);
+    setEnablingDatabase(true);
+
+    try {
+      // Send only the database key to the backend
+      await databaseApi.enableDatabaseWithKey(tenant.name, selectedDatabase);
       alert('Database enabled successfully! Pods are restarting...');
-      // Refresh tenant details to show new database
       await fetchTenantDetails();
     } catch (err) {
       alert('Failed to enable database: ' + err.message);
@@ -362,6 +381,44 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {showDatabaseDialog && (
+        <div className="modal-overlay" onClick={() => setShowDatabaseDialog(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Select Database</h3>
+            <p>Choose which database this tenant should connect to:</p>
+            {loadingDatabases ? (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>Loading databases...</div>
+            ) : (
+              <div className="database-options">
+                {availableDatabases.map((db) => (
+                  <label key={db.key} className="database-option">
+                    <input
+                      type="radio"
+                      name="database"
+                      value={db.key}
+                      checked={selectedDatabase === db.key}
+                      onChange={(e) => setSelectedDatabase(e.target.value)}
+                    />
+                    <div>
+                      <strong>{db.displayName}</strong>
+                      <span className="database-description">{db.description}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setShowDatabaseDialog(false)}>
+                Cancel
+              </button>
+              <button className="btn-primary" onClick={confirmEnableDatabase}>
+                Enable Database
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

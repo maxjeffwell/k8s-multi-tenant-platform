@@ -466,6 +466,45 @@ class K8sService {
     }
   }
 
+  // Restart a deployment by adding a restart annotation
+  async restartDeployment(namespace, deploymentName) {
+    try {
+      console.log(`Restarting deployment: ${deploymentName} in namespace: ${namespace}`);
+
+      const patch = {
+        spec: {
+          template: {
+            metadata: {
+              annotations: {
+                'kubectl.kubernetes.io/restartedAt': new Date().toISOString()
+              }
+            }
+          }
+        }
+      };
+
+      await k8sAppsApi.patchNamespacedDeployment(
+        deploymentName,
+        namespace,
+        patch,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { headers: { 'Content-Type': 'application/merge-patch+json' } }
+      );
+
+      return { message: `Deployment ${deploymentName} restarted` };
+    } catch (error) {
+      // If deployment doesn't exist, that's okay - it might not be deployed yet
+      if (error.message && error.message.includes('404')) {
+        return { message: `Deployment ${deploymentName} not found, skipping restart` };
+      }
+      throw new Error(`Failed to restart deployment: ${error.message}`);
+    }
+  }
+
   // Create a Kubernetes Secret for database credentials
   async createDatabaseSecret(namespace, secretName, connectionString, username, password, databaseName) {
     const secret = {
@@ -483,7 +522,9 @@ class K8sService {
       type: 'Opaque',
       stringData: {
         'MONGODB_URI': connectionString,  // Primary - used by educationelly-graphql-server
+        'MONGODB_URL': connectionString,  // Express.js convention
         'MONGO_URI': connectionString,    // Alternate naming
+        'MONGO_URL': connectionString,    // Another common variant
         'MONGO_USERNAME': username,
         'MONGO_PASSWORD': password,
         'MONGO_DATABASE': databaseName

@@ -1,22 +1,36 @@
 import atlasService from '../services/atlasService.js';
 import k8sService from '../services/k8sService.js';
+import { getDatabaseOptions, getDatabaseConfig } from '../config/databases.js';
 
 class DatabaseController {
   /**
+   * Get available database options
+   * GET /api/database/options
+   */
+  async getAvailableDatabases(req, res) {
+    try {
+      const databases = getDatabaseOptions();
+      res.json({ databases });
+    } catch (error) {
+      console.error('Error getting database options:', error);
+      res.status(500).json({
+        error: 'Failed to get database options',
+        details: error.message
+      });
+    }
+  }
+
+  /**
    * Create a MongoDB Atlas database for a tenant
    * POST /api/tenants/:tenantName/database
+   * Body: { databaseKey } - the key of the pre-configured database to use
+   *   OR  { connectionString, username, password, databaseName } - custom credentials
    */
   async createDatabase(req, res) {
     const { tenantName } = req.params;
+    const { databaseKey, connectionString, username, password, databaseName } = req.body || {};
 
     try {
-      // Check if Atlas is configured
-      if (!atlasService.isConfigured()) {
-        return res.status(500).json({
-          error: 'MongoDB Atlas is not configured. Please set Atlas environment variables.'
-        });
-      }
-
       // Check if namespace exists
       const tenantDetails = await k8sService.getTenantDetails(tenantName);
       if (!tenantDetails) {
@@ -33,31 +47,62 @@ class DatabaseController {
         });
       }
 
-      // Create database user in Atlas
-      const dbUser = await atlasService.createDatabaseUser(tenantName);
+      let dbConnectionString, dbUsername, dbPassword, dbName;
 
-      // Generate connection string
-      const connectionString = atlasService.getConnectionString(
-        dbUser.username,
-        dbUser.password,
-        dbUser.databaseName
-      );
+      // If databaseKey is provided, look up the credentials from config
+      if (databaseKey) {
+        const dbConfig = getDatabaseConfig(databaseKey);
+        if (!dbConfig) {
+          return res.status(400).json({
+            error: 'Invalid database key',
+            message: `Database '${databaseKey}' not found in configuration`
+          });
+        }
+        dbConnectionString = dbConfig.connectionString;
+        dbUsername = dbConfig.username;
+        dbPassword = dbConfig.password;
+        dbName = dbConfig.databaseName;
+      } else {
+        // Use provided credentials or generate defaults for a shared database
+        dbConnectionString = connectionString || atlasService.getConnectionString(
+          username || 'shared-user',
+          password || 'shared-password',
+          databaseName || `db-${tenantName}`
+        );
+
+        dbUsername = username || 'shared-user';
+        dbPassword = password || 'shared-password';
+        dbName = databaseName || `db-${tenantName}`;
+      }
 
       // Store credentials in Kubernetes Secret
       await k8sService.createDatabaseSecret(
         tenantName,
         secretName,
-        connectionString,
-        dbUser.username,
-        dbUser.password,
-        dbUser.databaseName
+        dbConnectionString,
+        dbUsername,
+        dbPassword,
+        dbName
       );
 
+      // Restart pods to pick up the new secret (best effort - continue if fails)
+      try {
+        await k8sService.restartDeployment(tenantName, 'educationelly-graphql-server');
+      } catch (restartError) {
+        console.warn('Failed to restart server deployment:', restartError.message);
+      }
+
+      try {
+        await k8sService.restartDeployment(tenantName, 'educationelly-graphql-client');
+      } catch (restartError) {
+        console.warn('Failed to restart client deployment:', restartError.message);
+      }
+
       res.status(201).json({
-        message: 'Database created successfully',
+        message: 'Database connected successfully',
         database: {
-          name: dbUser.databaseName,
-          username: dbUser.username,
+          name: dbName,
+          username: dbUsername,
           secretName: secretName
         }
       });
@@ -172,6 +217,83 @@ class DatabaseController {
       res.status(500).json({
         success: false,
         error: 'Failed to connect to Atlas',
+        details: error.message
+      });
+    }
+  }
+
+  /**
+   * Connect tenant to existing database (without creating new database user)
+   * POST /api/tenants/:tenantName/database/connect
+   * Body: { connectionString, username, password, databaseName } (all optional, uses defaults if not provided)
+   */
+  async connectExistingDatabase(req, res) {
+    const { tenantName } = req.params;
+    const { connectionString, username, password, databaseName } = req.body || {};
+
+    try {
+      // Check if namespace exists
+      const tenantDetails = await k8sService.getTenantDetails(tenantName);
+      if (!tenantDetails) {
+        return res.status(404).json({ error: 'Tenant not found' });
+      }
+
+      // Check if database already exists
+      const secretName = `${tenantName}-mongodb-secret`;
+      const existingSecret = await k8sService.getSecret(tenantName, secretName);
+      if (existingSecret) {
+        return res.status(409).json({
+          error: 'Database already exists for this tenant',
+          message: 'Use DELETE first to recreate'
+        });
+      }
+
+      // Use provided credentials or generate defaults for a shared database
+      const dbConnectionString = connectionString || atlasService.getConnectionString(
+        username || 'shared-user',
+        password || 'shared-password',
+        databaseName || `db-${tenantName}`
+      );
+
+      const dbUsername = username || 'shared-user';
+      const dbPassword = password || 'shared-password';
+      const dbName = databaseName || `db-${tenantName}`;
+
+      // Store credentials in Kubernetes Secret (without calling Atlas API)
+      await k8sService.createDatabaseSecret(
+        tenantName,
+        secretName,
+        dbConnectionString,
+        dbUsername,
+        dbPassword,
+        dbName
+      );
+
+      // Restart pods to pick up the new secret (best effort - continue if fails)
+      try {
+        await k8sService.restartDeployment(tenantName, 'educationelly-graphql-server');
+      } catch (restartError) {
+        console.warn('Failed to restart server deployment:', restartError.message);
+      }
+
+      try {
+        await k8sService.restartDeployment(tenantName, 'educationelly-graphql-client');
+      } catch (restartError) {
+        console.warn('Failed to restart client deployment:', restartError.message);
+      }
+
+      res.status(201).json({
+        message: 'Database connected successfully',
+        database: {
+          name: dbName,
+          username: dbUsername,
+          secretName: secretName
+        }
+      });
+    } catch (error) {
+      console.error('Database connection error:', error);
+      res.status(500).json({
+        error: 'Failed to connect database',
         details: error.message
       });
     }

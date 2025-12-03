@@ -38,3 +38,4 @@ coverage/
 # Kubernetes
 kubeconfig
 *.kubeconfig
+backend/src/config/databases.js

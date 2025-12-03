@@ -67,9 +67,27 @@ export const deploymentApi = {
 
 // Database API
 export const databaseApi = {
+  // Get available database options
+  getAvailableDatabases: async () => {
+    const response = await api.get('/database/options');
+    return response.data;
+  },
+
   // Enable database for tenant (auto-provision)
   enableDatabase: async (tenantName) => {
     const response = await api.post(`/database/${tenantName}/database`);
+    return response.data;
+  },
+
+  // Enable database with database key
+  enableDatabaseWithKey: async (tenantName, databaseKey) => {
+    const response = await api.post(`/database/${tenantName}/database`, { databaseKey });
+    return response.data;
+  },
+
+  // Enable database with specific credentials
+  enableDatabaseWithCredentials: async (tenantName, credentials) => {
+    const response = await api.post(`/database/${tenantName}/database`, credentials);
     return response.data;
   },
 
