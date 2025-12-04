@@ -14,17 +14,17 @@ function CreateTenant({ onSuccess, onCancel }) {
   const databaseOptions = {
     'graphql-test': {
       label: 'GraphQL Database (test)',
-      uri: 'mongodb+srv://maxjeffwell:REDACTED_PASSWORD@educationelly-db-graphq.xmgkwdh.mongodb.net/test',
-      username: 'maxjeffwell',
-      password: 'REDACTED_PASSWORD',
-      database: 'test'
+      uri: import.meta.env.VITE_MONGODB_GRAPHQL_URI || '',
+      username: import.meta.env.VITE_MONGODB_GRAPHQL_USERNAME || '',
+      password: import.meta.env.VITE_MONGODB_GRAPHQL_PASSWORD || '',
+      database: import.meta.env.VITE_MONGODB_GRAPHQL_DATABASE || 'test'
     },
     'rest-educationelly': {
       label: 'REST API Database (educationelly-db)',
-      uri: 'mongodb+srv://maxjeffwell:REDACTED_PASSWORD@educationelly-db.92qr2ay.mongodb.net/educationelly-db?appName=educationelly-db',
-      username: 'maxjeffwell',
-      password: 'REDACTED_PASSWORD',
-      database: 'educationelly-db'
+      uri: import.meta.env.VITE_MONGODB_REST_URI || '',
+      username: import.meta.env.VITE_MONGODB_REST_USERNAME || '',
+      password: import.meta.env.VITE_MONGODB_REST_PASSWORD || '',
+      database: import.meta.env.VITE_MONGODB_REST_DATABASE || 'educationelly-db'
     },
     'custom': {
       label: 'Custom MongoDB URI',
