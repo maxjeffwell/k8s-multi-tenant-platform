@@ -1,38 +1,165 @@
 import { k8sApi, k8sAppsApi, k8sNetworkingApi } from '../config/k8s.js';
 import * as k8s from '@kubernetes/client-node';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { createLogger } from '../utils/logger.js';
 
-const execAsync = promisify(exec);
+// Default logger - can be overridden via dependency injection for testing
+const defaultLog = createLogger('k8s-service');
+
+// Input validation for Kubernetes resource names
+// RFC 1123: lowercase alphanumeric, hyphens allowed (not at start/end), max 63 chars
+const K8S_NAME_REGEX = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+
+function validateResourceName(name, resourceType = 'resource') {
+  if (!name || typeof name !== 'string') {
+    throw new Error(`Invalid ${resourceType} name: name is required`);
+  }
+
+  const trimmed = name.trim().toLowerCase();
+
+  if (trimmed.length === 0) {
+    throw new Error(`Invalid ${resourceType} name: cannot be empty`);
+  }
+
+  if (trimmed.length > 63) {
+    throw new Error(`Invalid ${resourceType} name: exceeds 63 character limit`);
+  }
+
+  if (!K8S_NAME_REGEX.test(trimmed)) {
+    throw new Error(
+      `Invalid ${resourceType} name "${name}": must be lowercase alphanumeric, ` +
+      `may contain hyphens (not at start/end), max 63 characters`
+    );
+  }
+
+  return trimmed;
+}
+
+// Helper to extract response body from K8s client responses
+function extractBody(response) {
+  return response?.body || response;
+}
+
+// Helper to check if error is "not found"
+function isNotFoundError(error) {
+  const statusCode = error?.response?.statusCode || error?.statusCode || error?.code;
+  return statusCode === 404 ||
+         (error?.message && error.message.toLowerCase().includes('not found'));
+}
+
+// Helper to check if error is "already exists"
+function isAlreadyExistsError(error) {
+  const statusCode = error?.response?.statusCode || error?.statusCode;
+  return statusCode === 409 ||
+         (error?.message && error.message.toLowerCase().includes('already exists'));
+}
+
+/**
+ * Execute a Kubernetes API call with automatic create-or-update logic
+ * Tries to create a resource, and if it already exists, updates it instead
+ * @param {Function} createFn - Function to create the resource
+ * @param {Function} updateFn - Function to update the resource (called if already exists)
+ * @param {string} resourceType - Type of resource for error messages
+ * @returns {Promise<any>} The created or updated resource
+ */
+async function createOrUpdate(createFn, updateFn, resourceType = 'resource') {
+  try {
+    const response = await createFn();
+    return extractBody(response);
+  } catch (error) {
+    if (isAlreadyExistsError(error)) {
+      const response = await updateFn();
+      return extractBody(response);
+    }
+    throw new Error(`Failed to create ${resourceType}: ${error.message}`);
+  }
+}
+
+/**
+ * Execute a Kubernetes API call with automatic update-or-create logic
+ * Tries to update a resource, and if it doesn't exist, creates it instead
+ * @param {Function} updateFn - Function to update the resource
+ * @param {Function} createFn - Function to create the resource (called if not found)
+ * @param {string} resourceType - Type of resource for error messages
+ * @returns {Promise<any>} The updated or created resource
+ */
+async function updateOrCreate(updateFn, createFn, resourceType = 'resource') {
+  try {
+    const response = await updateFn();
+    return extractBody(response);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      const response = await createFn();
+      return extractBody(response);
+    }
+    throw new Error(`Failed to update ${resourceType}: ${error.message}`);
+  }
+}
+
+/**
+ * Execute a Kubernetes API call with standard error handling
+ * @param {Function} apiFn - Function that makes the API call
+ * @param {string} resourceType - Type of resource for error messages
+ * @param {Object} options - Options for handling specific errors
+ * @param {boolean} options.ignoreNotFound - Return null instead of throwing on 404
+ * @returns {Promise<any>} The API response body or null if not found and ignoreNotFound is true
+ */
+async function executeK8sCall(apiFn, resourceType = 'resource', options = {}) {
+  try {
+    const response = await apiFn();
+    return extractBody(response);
+  } catch (error) {
+    if (options.ignoreNotFound && isNotFoundError(error)) {
+      return null;
+    }
+    throw new Error(`Failed to ${options.operation || 'access'} ${resourceType}: ${error.message}`);
+  }
+}
 
 class K8sService {
+  /**
+   * Create a K8sService instance
+   * @param {Object} deps - Optional dependencies for testing
+   * @param {Object} deps.coreApi - Kubernetes CoreV1Api client
+   * @param {Object} deps.appsApi - Kubernetes AppsV1Api client
+   * @param {Object} deps.networkingApi - Kubernetes NetworkingV1Api client
+   * @param {Object} deps.logger - Logger instance
+   */
+  constructor(deps = {}) {
+    this.coreApi = deps.coreApi || k8sApi;
+    this.appsApi = deps.appsApi || k8sAppsApi;
+    this.networkingApi = deps.networkingApi || k8sNetworkingApi;
+    this.log = deps.logger || defaultLog;
+  }
+
   // Create a new namespace for a tenant
   async createNamespace(tenantName, resourceQuota = {}) {
-    try {
-      // Use kubectl as workaround for K8s client API compatibility issue
-      const createCmd = `kubectl create namespace ${tenantName} --dry-run=client -o json`;
-      const { stdout } = await execAsync(createCmd);
-      const nsObject = JSON.parse(stdout);
+    const validatedName = validateResourceName(tenantName, 'namespace');
 
-      // Add labels
-      nsObject.metadata.labels = {
-        'app.kubernetes.io/managed-by': 'multi-tenant-platform',
-        'tenant': tenantName
+    try {
+      const namespaceManifest = {
+        apiVersion: 'v1',
+        kind: 'Namespace',
+        metadata: {
+          name: validatedName,
+          labels: {
+            'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+            'tenant': validatedName
+          }
+        }
       };
 
-      // Apply the namespace
-      const applyCmd = `echo '${JSON.stringify(nsObject)}' | kubectl apply -f -`;
-      await execAsync(applyCmd);
+      const namespace = await createOrUpdate(
+        () => this.coreApi.createNamespace(namespaceManifest),
+        () => this.coreApi.readNamespace(validatedName),
+        'namespace'
+      );
 
       // Create resource quota if specified
       if (resourceQuota.cpu || resourceQuota.memory) {
-        await this.createResourceQuota(tenantName, resourceQuota);
+        await this.createResourceQuota(validatedName, resourceQuota);
       }
 
-      // Return the namespace details using kubectl
-      const getCmd = `kubectl get namespace ${tenantName} -o json`;
-      const { stdout: nsData } = await execAsync(getCmd);
-      return JSON.parse(nsData);
+      return namespace;
     } catch (error) {
       throw new Error(`Failed to create namespace: ${error.message}`);
     }
@@ -53,14 +180,16 @@ class K8sService {
 
   // Create resource quota for a namespace
   async createResourceQuota(namespace, quota) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
     const normalizedMemory = this.normalizeMemory(quota.memory);
+    const quotaName = `${validatedNamespace}-quota`;
 
     const resourceQuota = {
       apiVersion: 'v1',
       kind: 'ResourceQuota',
       metadata: {
-        name: `${namespace}-quota`,
-        namespace: namespace
+        name: quotaName,
+        namespace: validatedNamespace
       },
       spec: {
         hard: {
@@ -75,16 +204,20 @@ class K8sService {
     };
 
     try {
-      const quotaJson = JSON.stringify(resourceQuota);
-      const applyCmd = `echo '${quotaJson}' | kubectl apply -f -`;
-      await execAsync(applyCmd);
+      await createOrUpdate(
+        () => this.coreApi.createNamespacedResourceQuota(validatedNamespace, resourceQuota),
+        () => this.coreApi.replaceNamespacedResourceQuota(quotaName, validatedNamespace, resourceQuota),
+        'resource quota'
+      );
     } catch (error) {
-      throw new Error(`Failed to create resource quota: ${error.message}`);
+      throw error;
     }
   }
 
   // Deploy educationelly-graphql to a namespace
   async deployEducationelly(namespace, config = {}) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+
     const {
       replicas = 1,
       appType = 'graphql', // 'graphql' or 'rest'
@@ -107,12 +240,12 @@ class K8sService {
 
     try {
       // Check if database secret exists in namespace
-      const secretName = databaseSecretName || `${namespace}-mongodb-secret`;
-      const secretExists = await this.getSecret(namespace, secretName);
+      const secretName = databaseSecretName || `${validatedNamespace}-mongodb-secret`;
+      const secretExists = await this.getSecret(validatedNamespace, secretName);
 
       // Deploy Server with database secret if available
       const serverDeployment = await this.createDeployment(
-        namespace,
+        validatedNamespace,
         `${appPrefix}-server`,
         finalServerImage,
         finalServerPort,
@@ -122,7 +255,7 @@ class K8sService {
       );
 
       // Create service for server
-      await this.createService(namespace, `${appPrefix}-server`, finalServerPort);
+      await this.createService(validatedNamespace, `${appPrefix}-server`, finalServerPort);
 
       // Deploy Client Frontend (doesn't need database access)
       // Security context allows nginx to bind to privileged ports
@@ -141,7 +274,7 @@ class K8sService {
       }
 
       const clientDeployment = await this.createDeployment(
-        namespace,
+        validatedNamespace,
         `${appPrefix}-client`,
         finalClientImage,
         finalClientPort,
@@ -152,11 +285,11 @@ class K8sService {
       );
 
       // Create service for client
-      await this.createService(namespace, `${appPrefix}-client`, finalClientPort);
+      await this.createService(validatedNamespace, `${appPrefix}-client`, finalClientPort);
 
       return {
-        server: serverDeployment.body,
-        client: clientDeployment.body,
+        server: serverDeployment,
+        client: clientDeployment,
         databaseConfigured: !!secretExists
       };
     } catch (error) {
@@ -166,8 +299,11 @@ class K8sService {
 
   // Helper method to create a deployment
   async createDeployment(namespace, appName, image, port, replicas, env, secretName = null, securityContext = null) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedAppName = validateResourceName(appName, 'deployment');
+
     const containerSpec = {
-      name: appName,
+      name: validatedAppName,
       image: image,
       ports: [
         {
@@ -212,25 +348,25 @@ class K8sService {
       apiVersion: 'apps/v1',
       kind: 'Deployment',
       metadata: {
-        name: appName,
-        namespace: namespace,
+        name: validatedAppName,
+        namespace: validatedNamespace,
         labels: {
-          app: appName,
-          tenant: namespace
+          app: validatedAppName,
+          tenant: validatedNamespace
         }
       },
       spec: {
         replicas: replicas,
         selector: {
           matchLabels: {
-            app: appName
+            app: validatedAppName
           }
         },
         template: {
           metadata: {
             labels: {
-              app: appName,
-              tenant: namespace
+              app: validatedAppName,
+              tenant: validatedNamespace
             }
           },
           spec: {
@@ -241,38 +377,35 @@ class K8sService {
     };
 
     try {
-      // Use kubectl to create deployment
-      const deploymentJson = JSON.stringify(deployment);
-      const applyCmd = `echo '${deploymentJson}' | kubectl apply -f -`;
-      await execAsync(applyCmd);
-
-      // Read back the deployment using kubectl
-      const getCmd = `kubectl get deployment ${appName} -n ${namespace} -o json`;
-      const { stdout } = await execAsync(getCmd);
-      const deploymentResult = JSON.parse(stdout);
-
-      return { body: deploymentResult };
+      return await createOrUpdate(
+        () => this.appsApi.createNamespacedDeployment(validatedNamespace, deployment),
+        () => this.appsApi.replaceNamespacedDeployment(validatedAppName, validatedNamespace, deployment),
+        `deployment ${appName}`
+      );
     } catch (error) {
-      throw new Error(`Failed to create deployment ${appName}: ${error.message}`);
+      throw error;
     }
   }
 
   // Create service for the deployment
   async createService(namespace, appName, port) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedAppName = validateResourceName(appName, 'service');
+
     const service = {
       apiVersion: 'v1',
       kind: 'Service',
       metadata: {
-        name: appName,
-        namespace: namespace,
+        name: validatedAppName,
+        namespace: validatedNamespace,
         labels: {
-          app: appName
+          app: validatedAppName
         }
       },
       spec: {
         type: 'ClusterIP',
         selector: {
-          app: appName
+          app: validatedAppName
         },
         ports: [
           {
@@ -286,21 +419,21 @@ class K8sService {
     };
 
     try {
-      // Use kubectl to create service
-      const serviceJson = JSON.stringify(service);
-      const applyCmd = `echo '${serviceJson}' | kubectl apply -f -`;
-      await execAsync(applyCmd);
+      await createOrUpdate(
+        () => this.coreApi.createNamespacedService(validatedNamespace, service),
+        () => this.coreApi.replaceNamespacedService(validatedAppName, validatedNamespace, service),
+        'service'
+      );
     } catch (error) {
-      throw new Error(`Failed to create service: ${error.message}`);
+      throw error;
     }
   }
 
   // List all tenant namespaces
   async listTenants() {
     try {
-      const response = await k8sApi.listNamespace();
-      // Handle both response.body and direct response
-      const allItems = response.body?.items || response.items || [];
+      const response = await this.coreApi.listNamespace();
+      const allItems = extractBody(response)?.items || [];
 
       // Filter to only include namespaces managed by this platform
       // and exclude terminating namespaces
@@ -315,7 +448,7 @@ class K8sService {
       return filteredItems;
     } catch (error) {
       // If no tenants exist yet, return empty array instead of error
-      if (error.response?.statusCode === 404 || error.statusCode === 404) {
+      if (isNotFoundError(error)) {
         return [];
       }
       throw new Error(`Failed to list tenants: ${error.message}`);
@@ -324,25 +457,21 @@ class K8sService {
 
   // Get tenant details including deployments and resource usage
   async getTenantDetails(namespace) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+
     try {
-      // Use kubectl as workaround for K8s client API compatibility issue
-      const [nsResult, deploymentsResult, servicesResult, podsResult] = await Promise.all([
-        execAsync(`kubectl get namespace ${namespace} -o json`),
-        execAsync(`kubectl get deployments -n ${namespace} -o json`),
-        execAsync(`kubectl get services -n ${namespace} -o json`),
-        execAsync(`kubectl get pods -n ${namespace} -o json`)
+      const [nsResponse, deploymentsResponse, servicesResponse, podsResponse] = await Promise.all([
+        this.coreApi.readNamespace(validatedNamespace),
+        this.appsApi.listNamespacedDeployment(validatedNamespace),
+        this.coreApi.listNamespacedService(validatedNamespace),
+        this.coreApi.listNamespacedPod(validatedNamespace)
       ]);
 
-      const ns = JSON.parse(nsResult.stdout);
-      const deployments = JSON.parse(deploymentsResult.stdout);
-      const services = JSON.parse(servicesResult.stdout);
-      const pods = JSON.parse(podsResult.stdout);
-
       return {
-        namespace: ns,
-        deployments: deployments.items || [],
-        services: services.items || [],
-        pods: pods.items || []
+        namespace: extractBody(nsResponse),
+        deployments: extractBody(deploymentsResponse)?.items || [],
+        services: extractBody(servicesResponse)?.items || [],
+        pods: extractBody(podsResponse)?.items || []
       };
     } catch (error) {
       throw new Error(`Failed to get tenant details: ${error.message}`);
@@ -351,26 +480,25 @@ class K8sService {
 
   // Get resource usage metrics for a namespace
   async getNamespaceMetrics(namespace) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+
     try {
-      // Use kubectl as workaround for K8s client API compatibility issue
-      const podsResult = await execAsync(`kubectl get pods -n ${namespace} -o json`);
-      const pods = JSON.parse(podsResult.stdout);
+      const podsResponse = await this.coreApi.listNamespacedPod(validatedNamespace);
+      const pods = extractBody(podsResponse);
 
-      let quotaData = null;
-      try {
-        const quotaResult = await execAsync(`kubectl get resourcequota ${namespace}-quota -n ${namespace} -o json`);
-        quotaData = JSON.parse(quotaResult.stdout);
-      } catch (quotaError) {
-        // Quota might not exist, that's okay
-        console.warn(`No resource quota found for ${namespace}`);
-      }
+      const quotaData = await executeK8sCall(
+        () => this.coreApi.readNamespacedResourceQuota(`${validatedNamespace}-quota`, validatedNamespace),
+        'resource quota',
+        { ignoreNotFound: true, operation: 'read' }
+      );
 
+      const podItems = pods?.items || [];
       return {
         pods: {
-          total: pods.items.length,
-          running: pods.items.filter(p => p.status.phase === 'Running').length,
-          pending: pods.items.filter(p => p.status.phase === 'Pending').length,
-          failed: pods.items.filter(p => p.status.phase === 'Failed').length
+          total: podItems.length,
+          running: podItems.filter(p => p.status?.phase === 'Running').length,
+          pending: podItems.filter(p => p.status?.phase === 'Pending').length,
+          failed: podItems.filter(p => p.status?.phase === 'Failed').length
         },
         quota: quotaData
       };
@@ -381,25 +509,27 @@ class K8sService {
 
   // Get resource quota for a namespace
   async getResourceQuota(namespace) {
-    try {
-      const quotaResult = await execAsync(`microk8s kubectl get resourcequota ${namespace}-quota -n ${namespace} -o json`);
-      return JSON.parse(quotaResult.stdout);
-    } catch (error) {
-      // Quota might not exist
-      return null;
-    }
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+
+    return await executeK8sCall(
+      () => this.coreApi.readNamespacedResourceQuota(`${validatedNamespace}-quota`, validatedNamespace),
+      'resource quota',
+      { ignoreNotFound: true, operation: 'read' }
+    );
   }
 
   // Update resource quota for a namespace
   async updateResourceQuota(namespace, quota) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
     const normalizedMemory = this.normalizeMemory(quota.memory);
+    const quotaName = `${validatedNamespace}-quota`;
 
     const resourceQuota = {
       apiVersion: 'v1',
       kind: 'ResourceQuota',
       metadata: {
-        name: `${namespace}-quota`,
-        namespace: namespace
+        name: quotaName,
+        namespace: validatedNamespace
       },
       spec: {
         hard: {
@@ -414,26 +544,27 @@ class K8sService {
     };
 
     try {
-      const quotaJson = JSON.stringify(resourceQuota);
-      const applyCmd = `echo '${quotaJson}' | kubectl apply -f -`;
-      await execAsync(applyCmd);
+      await updateOrCreate(
+        () => this.coreApi.replaceNamespacedResourceQuota(quotaName, validatedNamespace, resourceQuota),
+        () => this.coreApi.createNamespacedResourceQuota(validatedNamespace, resourceQuota),
+        'resource quota'
+      );
       return resourceQuota.spec.hard;
     } catch (error) {
-      throw new Error(`Failed to update resource quota: ${error.message}`);
+      throw error;
     }
   }
 
   // Delete a tenant namespace (this will delete all resources in it)
   async deleteTenant(namespace) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+
     try {
-      // Use kubectl as workaround for K8s client API compatibility issue
-      const deleteCmd = `kubectl delete namespace ${namespace} --wait=false`;
-      await execAsync(deleteCmd);
-      return { message: `Namespace ${namespace} deletion initiated successfully` };
+      await this.coreApi.deleteNamespace(validatedNamespace);
+      return { message: `Namespace ${validatedNamespace} deletion initiated successfully` };
     } catch (error) {
-      // If namespace doesn't exist, consider it already deleted (success)
-      if (error.message && error.message.includes('NotFound')) {
-        return { message: `Namespace ${namespace} already deleted or doesn't exist` };
+      if (isNotFoundError(error)) {
+        return { message: `Namespace ${validatedNamespace} already deleted or doesn't exist` };
       }
       throw new Error(`Failed to delete tenant: ${error.message}`);
     }
@@ -441,6 +572,9 @@ class K8sService {
 
   // Scale a deployment
   async scaleDeployment(namespace, deploymentName, replicas) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedDeployment = validateResourceName(deploymentName, 'deployment');
+
     try {
       const patch = {
         spec: {
@@ -449,9 +583,9 @@ class K8sService {
       };
 
       const options = { headers: { 'Content-Type': 'application/merge-patch+json' } };
-      await k8sAppsApi.patchNamespacedDeployment(
-        deploymentName,
-        namespace,
+      await this.appsApi.patchNamespacedDeployment(
+        validatedDeployment,
+        validatedNamespace,
         patch,
         undefined,
         undefined,
@@ -468,8 +602,11 @@ class K8sService {
 
   // Restart a deployment by adding a restart annotation
   async restartDeployment(namespace, deploymentName) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedDeployment = validateResourceName(deploymentName, 'deployment');
+
     try {
-      console.log(`Restarting deployment: ${deploymentName} in namespace: ${namespace}`);
+      this.log.info({ deployment: validatedDeployment, namespace: validatedNamespace }, 'Restarting deployment');
 
       const patch = {
         spec: {
@@ -483,9 +620,9 @@ class K8sService {
         }
       };
 
-      await k8sAppsApi.patchNamespacedDeployment(
-        deploymentName,
-        namespace,
+      await this.appsApi.patchNamespacedDeployment(
+        validatedDeployment,
+        validatedNamespace,
         patch,
         undefined,
         undefined,
@@ -495,11 +632,10 @@ class K8sService {
         { headers: { 'Content-Type': 'application/merge-patch+json' } }
       );
 
-      return { message: `Deployment ${deploymentName} restarted` };
+      return { message: `Deployment ${validatedDeployment} restarted` };
     } catch (error) {
-      // If deployment doesn't exist, that's okay - it might not be deployed yet
-      if (error.message && error.message.includes('404')) {
-        return { message: `Deployment ${deploymentName} not found, skipping restart` };
+      if (isNotFoundError(error)) {
+        return { message: `Deployment ${validatedDeployment} not found, skipping restart` };
       }
       throw new Error(`Failed to restart deployment: ${error.message}`);
     }
@@ -507,16 +643,19 @@ class K8sService {
 
   // Create a Kubernetes Secret for database credentials
   async createDatabaseSecret(namespace, secretName, connectionString, username, password, databaseName) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedSecretName = validateResourceName(secretName, 'secret');
+
     const secret = {
       apiVersion: 'v1',
       kind: 'Secret',
       metadata: {
-        name: secretName,
-        namespace: namespace,
+        name: validatedSecretName,
+        namespace: validatedNamespace,
         labels: {
           'app.kubernetes.io/managed-by': 'multi-tenant-platform',
           'app.kubernetes.io/component': 'database',
-          'tenant': namespace
+          'tenant': validatedNamespace
         }
       },
       type: 'Opaque',
@@ -532,12 +671,17 @@ class K8sService {
     };
 
     try {
-      // Use kubectl to create secret
-      const secretJson = JSON.stringify(secret);
-      const applyCmd = `echo '${secretJson}' | kubectl apply -f -`;
-      await execAsync(applyCmd);
-
-      return { message: `Secret ${secretName} created successfully` };
+      try {
+        await this.coreApi.createNamespacedSecret(validatedNamespace, secret);
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          // Update existing secret
+          await this.coreApi.replaceNamespacedSecret(validatedSecretName, validatedNamespace, secret);
+        } else {
+          throw error;
+        }
+      }
+      return { message: `Secret ${validatedSecretName} created successfully` };
     } catch (error) {
       throw new Error(`Failed to create secret: ${error.message}`);
     }
@@ -545,26 +689,26 @@ class K8sService {
 
   // Get a secret from a namespace
   async getSecret(namespace, secretName) {
-    try {
-      const getCmd = `kubectl get secret ${secretName} -n ${namespace} -o json`;
-      const { stdout } = await execAsync(getCmd);
-      return JSON.parse(stdout);
-    } catch (error) {
-      if (error.message.includes('NotFound') || error.message.includes('not found')) {
-        return null;
-      }
-      throw new Error(`Failed to get secret: ${error.message}`);
-    }
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedSecretName = validateResourceName(secretName, 'secret');
+
+    return await executeK8sCall(
+      () => this.coreApi.readNamespacedSecret(validatedSecretName, validatedNamespace),
+      'secret',
+      { ignoreNotFound: true, operation: 'read' }
+    );
   }
 
   // Delete a secret from a namespace
   async deleteSecret(namespace, secretName) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedSecretName = validateResourceName(secretName, 'secret');
+
     try {
-      const deleteCmd = `kubectl delete secret ${secretName} -n ${namespace}`;
-      await execAsync(deleteCmd);
-      return { message: `Secret ${secretName} deleted successfully` };
+      await this.coreApi.deleteNamespacedSecret(validatedSecretName, validatedNamespace);
+      return { message: `Secret ${validatedSecretName} deleted successfully` };
     } catch (error) {
-      if (error.message.includes('NotFound') || error.message.includes('not found')) {
+      if (isNotFoundError(error)) {
         return { message: `Secret already deleted or doesn't exist` };
       }
       throw new Error(`Failed to delete secret: ${error.message}`);
@@ -573,28 +717,33 @@ class K8sService {
 
   // Update deployment to use environment variables from secret
   async updateDeploymentWithSecret(namespace, deploymentName, secretName) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedDeployment = validateResourceName(deploymentName, 'deployment');
+    const validatedSecretName = validateResourceName(secretName, 'secret');
+
     try {
       // Get current deployment
-      const getCmd = `kubectl get deployment ${deploymentName} -n ${namespace} -o json`;
-      const { stdout } = await execAsync(getCmd);
-      const deployment = JSON.parse(stdout);
+      const response = await this.appsApi.readNamespacedDeployment(validatedDeployment, validatedNamespace);
+      const deployment = extractBody(response);
 
       // Update container env to use secretRef
-      if (deployment.spec.template.spec.containers[0]) {
+      if (deployment.spec?.template?.spec?.containers?.[0]) {
         deployment.spec.template.spec.containers[0].envFrom = [
           {
             secretRef: {
-              name: secretName
+              name: validatedSecretName
             }
           }
         ];
 
         // Apply updated deployment
-        const deploymentJson = JSON.stringify(deployment);
-        const applyCmd = `echo '${deploymentJson}' | kubectl apply -f -`;
-        await execAsync(applyCmd);
+        await this.appsApi.replaceNamespacedDeployment(
+          validatedDeployment,
+          validatedNamespace,
+          deployment
+        );
 
-        return { message: `Deployment ${deploymentName} updated to use secret ${secretName}` };
+        return { message: `Deployment ${validatedDeployment} updated to use secret ${validatedSecretName}` };
       }
 
       throw new Error('No containers found in deployment');
@@ -605,18 +754,34 @@ class K8sService {
 
   // Check database connection status by examining pod logs
   async checkDatabaseConnection(namespace) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+
     try {
       // Get pods in the namespace that match either GraphQL or REST server deployment
-      let podsResult = await execAsync(`kubectl get pods -n ${namespace} -l app=educationelly-graphql-server -o json`);
-      let pods = JSON.parse(podsResult.stdout);
+      let podsResponse = await this.coreApi.listNamespacedPod(
+        validatedNamespace,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'app=educationelly-graphql-server'
+      );
+      let pods = extractBody(podsResponse);
 
       // If no GraphQL server pods found, try REST API server
-      if (!pods.items || pods.items.length === 0) {
-        podsResult = await execAsync(`kubectl get pods -n ${namespace} -l app=educationelly-server -o json`);
-        pods = JSON.parse(podsResult.stdout);
+      if (!pods?.items || pods.items.length === 0) {
+        podsResponse = await this.coreApi.listNamespacedPod(
+          validatedNamespace,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          'app=educationelly-server'
+        );
+        pods = extractBody(podsResponse);
       }
 
-      if (!pods.items || pods.items.length === 0) {
+      if (!pods?.items || pods.items.length === 0) {
         return {
           connected: false,
           status: 'no_pods',
@@ -627,7 +792,7 @@ class K8sService {
       // Get the most recent pod
       const pod = pods.items[0];
       const podName = pod.metadata.name;
-      const podPhase = pod.status.phase;
+      const podPhase = pod.status?.phase;
 
       // If pod is not running, can't check logs
       if (podPhase !== 'Running') {
@@ -640,9 +805,22 @@ class K8sService {
       }
 
       try {
-        // Get recent logs (last 50 lines) from the pod
-        const logsCmd = `kubectl logs ${podName} -n ${namespace} --tail=100 2>&1 || true`;
-        const { stdout: logs } = await execAsync(logsCmd);
+        // Get recent logs (last 100 lines) from the pod
+        const logsResponse = await this.coreApi.readNamespacedPodLog(
+          podName,
+          validatedNamespace,
+          undefined, // container
+          undefined, // follow
+          undefined, // insecureSkipTLSVerifyBackend
+          undefined, // limitBytes
+          undefined, // pretty
+          undefined, // previous
+          undefined, // sinceSeconds
+          100,       // tailLines
+          undefined  // timestamps
+        );
+
+        const logs = logsResponse?.body || logsResponse || '';
 
         // Check for MongoDB connection indicators
         const hasMongoConnection = logs.includes('MongoDB') ||
@@ -699,4 +877,17 @@ class K8sService {
   }
 }
 
-export default new K8sService();
+// Export the class for testing with dependency injection
+export { K8sService };
+
+// Export validation helpers for testing
+export { validateResourceName, isNotFoundError, isAlreadyExistsError };
+
+// Factory function for creating instances with custom dependencies
+export function createK8sService(deps = {}) {
+  return new K8sService(deps);
+}
+
+// Default singleton instance for production use
+const k8sService = new K8sService();
+export default k8sService;

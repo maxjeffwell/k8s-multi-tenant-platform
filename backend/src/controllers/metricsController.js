@@ -1,4 +1,15 @@
 import prometheusService from '../services/prometheusService.js';
+import { createLogger } from '../utils/logger.js';
+import {
+  validateBody,
+  validateParams,
+  tenantNameParamSchema,
+  metricsTimeSeriesQuerySchema,
+  metricsRangeQuerySchema,
+  customPromqlQuerySchema
+} from '../utils/validation.js';
+
+const log = createLogger('metrics-controller');
 
 class MetricsController {
   /**
@@ -7,11 +18,8 @@ class MetricsController {
    */
   async getTenantMetrics(req, res) {
     try {
-      const { tenantName } = req.params;
-
-      if (!tenantName) {
-        return res.status(400).json({ error: 'Tenant name is required' });
-      }
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
 
       const metrics = await prometheusService.getTenantMetricsOverview(tenantName);
 
@@ -20,7 +28,13 @@ class MetricsController {
         data: metrics
       });
     } catch (error) {
-      console.error('Error fetching tenant metrics:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to fetch tenant metrics');
       res.status(500).json({
         success: false,
         error: error.message
@@ -34,19 +48,11 @@ class MetricsController {
    */
   async getTenantTimeSeries(req, res) {
     try {
-      const { tenantName } = req.params;
-      const timeRange = parseInt(req.query.range) || 3600; // Default 1 hour
-
-      if (!tenantName) {
-        return res.status(400).json({ error: 'Tenant name is required' });
-      }
-
-      // Validate time range (1 hour to 24 hours)
-      if (timeRange < 3600 || timeRange > 86400) {
-        return res.status(400).json({
-          error: 'Time range must be between 3600 (1 hour) and 86400 (24 hours) seconds'
-        });
-      }
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
+      // Validate query params - time range in seconds (3600-86400)
+      const { range } = validateBody(metricsTimeSeriesQuerySchema, req.query);
+      const timeRange = range || 3600;
 
       const timeSeries = await prometheusService.getTenantTimeSeries(tenantName, timeRange);
 
@@ -55,7 +61,13 @@ class MetricsController {
         data: timeSeries
       });
     } catch (error) {
-      console.error('Error fetching tenant time series:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName, range: req.query?.range }, 'Failed to fetch tenant time series');
       res.status(500).json({
         success: false,
         error: error.message
@@ -76,7 +88,7 @@ class MetricsController {
         data: metrics
       });
     } catch (error) {
-      console.error('Error fetching platform metrics:', error);
+      log.error({ err: error }, 'Failed to fetch platform metrics');
       res.status(500).json({
         success: false,
         error: error.message
@@ -90,12 +102,11 @@ class MetricsController {
    */
   async getTenantCPU(req, res) {
     try {
-      const { tenantName } = req.params;
-      const timeRange = req.query.range || '5m';
-
-      if (!tenantName) {
-        return res.status(400).json({ error: 'Tenant name is required' });
-      }
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
+      // Validate query params - time range format (e.g., '5m', '1h')
+      const { range } = validateBody(metricsRangeQuerySchema, req.query);
+      const timeRange = range || '5m';
 
       const cpu = await prometheusService.getTenantCPUUsage(tenantName, timeRange);
 
@@ -104,7 +115,13 @@ class MetricsController {
         data: cpu
       });
     } catch (error) {
-      console.error('Error fetching tenant CPU:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to fetch tenant CPU');
       res.status(500).json({
         success: false,
         error: error.message
@@ -118,11 +135,8 @@ class MetricsController {
    */
   async getTenantMemory(req, res) {
     try {
-      const { tenantName } = req.params;
-
-      if (!tenantName) {
-        return res.status(400).json({ error: 'Tenant name is required' });
-      }
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
 
       const memory = await prometheusService.getTenantMemoryUsage(tenantName);
 
@@ -131,7 +145,13 @@ class MetricsController {
         data: memory
       });
     } catch (error) {
-      console.error('Error fetching tenant memory:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to fetch tenant memory');
       res.status(500).json({
         success: false,
         error: error.message
@@ -145,11 +165,8 @@ class MetricsController {
    */
   async getTenantPods(req, res) {
     try {
-      const { tenantName } = req.params;
-
-      if (!tenantName) {
-        return res.status(400).json({ error: 'Tenant name is required' });
-      }
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
 
       const pods = await prometheusService.getTenantPodStatus(tenantName);
 
@@ -158,7 +175,13 @@ class MetricsController {
         data: pods
       });
     } catch (error) {
-      console.error('Error fetching tenant pods:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to fetch tenant pods');
       res.status(500).json({
         success: false,
         error: error.message
@@ -172,12 +195,11 @@ class MetricsController {
    */
   async getTenantNetwork(req, res) {
     try {
-      const { tenantName } = req.params;
-      const timeRange = req.query.range || '5m';
-
-      if (!tenantName) {
-        return res.status(400).json({ error: 'Tenant name is required' });
-      }
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
+      // Validate query params - time range format (e.g., '5m', '1h')
+      const { range } = validateBody(metricsRangeQuerySchema, req.query);
+      const timeRange = range || '5m';
 
       const network = await prometheusService.getTenantNetworkIO(tenantName, timeRange);
 
@@ -186,7 +208,13 @@ class MetricsController {
         data: network
       });
     } catch (error) {
-      console.error('Error fetching tenant network:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to fetch tenant network');
       res.status(500).json({
         success: false,
         error: error.message
@@ -200,11 +228,8 @@ class MetricsController {
    */
   async getTenantQuota(req, res) {
     try {
-      const { tenantName } = req.params;
-
-      if (!tenantName) {
-        return res.status(400).json({ error: 'Tenant name is required' });
-      }
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
 
       const quota = await prometheusService.getTenantQuotaUsage(tenantName);
 
@@ -213,7 +238,13 @@ class MetricsController {
         data: quota
       });
     } catch (error) {
-      console.error('Error fetching tenant quota:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to fetch tenant quota');
       res.status(500).json({
         success: false,
         error: error.message
@@ -228,12 +259,10 @@ class MetricsController {
    */
   async customQuery(req, res) {
     try {
-      const { query } = req.body;
+      // Validate request body - validates and sanitizes PromQL query
+      const { query } = validateBody(customPromqlQuerySchema, req.body);
 
-      if (!query) {
-        return res.status(400).json({ error: 'PromQL query is required' });
-      }
-
+      log.debug({ query }, 'Executing custom PromQL query');
       const result = await prometheusService.query(query);
 
       res.json({
@@ -241,7 +270,13 @@ class MetricsController {
         data: result
       });
     } catch (error) {
-      console.error('Error executing custom query:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, query: req.body?.query }, 'Failed to execute custom query');
       res.status(500).json({
         success: false,
         error: error.message

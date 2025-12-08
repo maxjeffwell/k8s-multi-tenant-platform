@@ -1,6 +1,16 @@
 import atlasService from '../services/atlasService.js';
 import k8sService from '../services/k8sService.js';
 import { getDatabaseOptions, getDatabaseConfig } from '../config/databases.js';
+import { createLogger } from '../utils/logger.js';
+import {
+  validateBody,
+  validateParams,
+  createDatabaseSchema,
+  connectDatabaseSchema,
+  tenantNameParamSchema
+} from '../utils/validation.js';
+
+const log = createLogger('database-controller');
 
 class DatabaseController {
   /**
@@ -12,7 +22,7 @@ class DatabaseController {
       const databases = getDatabaseOptions();
       res.json({ databases });
     } catch (error) {
-      console.error('Error getting database options:', error);
+      log.error({ err: error }, 'Failed to get database options');
       res.status(500).json({
         error: 'Failed to get database options',
         details: error.message
@@ -27,10 +37,14 @@ class DatabaseController {
    *   OR  { connectionString, username, password, databaseName } - custom credentials
    */
   async createDatabase(req, res) {
-    const { tenantName } = req.params;
-    const { databaseKey, connectionString, username, password, databaseName } = req.body || {};
-
     try {
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
+      // Validate request body - validates connection string format, credentials
+      const { databaseKey, connectionString, username, password, databaseName } = validateBody(createDatabaseSchema, req.body || {});
+
+      log.info({ tenantName, databaseKey, hasDatabaseName: !!databaseName }, 'Creating database for tenant');
+
       // Check if namespace exists
       const tenantDetails = await k8sService.getTenantDetails(tenantName);
       if (!tenantDetails) {
@@ -89,15 +103,16 @@ class DatabaseController {
       try {
         await k8sService.restartDeployment(tenantName, 'educationelly-graphql-server');
       } catch (restartError) {
-        console.warn('Failed to restart server deployment:', restartError.message);
+        log.warn({ err: restartError, tenantName, deployment: 'educationelly-graphql-server' }, 'Failed to restart server deployment');
       }
 
       try {
         await k8sService.restartDeployment(tenantName, 'educationelly-graphql-client');
       } catch (restartError) {
-        console.warn('Failed to restart client deployment:', restartError.message);
+        log.warn({ err: restartError, tenantName, deployment: 'educationelly-graphql-client' }, 'Failed to restart client deployment');
       }
 
+      log.info({ tenantName, databaseName: dbName, secretName }, 'Database created successfully');
       res.status(201).json({
         message: 'Database connected successfully',
         database: {
@@ -107,7 +122,13 @@ class DatabaseController {
         }
       });
     } catch (error) {
-      console.error('Database creation error:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Database creation failed');
       res.status(500).json({
         error: 'Failed to create database',
         details: error.message
@@ -120,9 +141,12 @@ class DatabaseController {
    * DELETE /api/tenants/:tenantName/database
    */
   async deleteDatabase(req, res) {
-    const { tenantName } = req.params;
-
     try {
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
+
+      log.info({ tenantName }, 'Deleting database for tenant');
+
       if (!atlasService.isConfigured()) {
         return res.status(500).json({
           error: 'MongoDB Atlas is not configured'
@@ -136,11 +160,18 @@ class DatabaseController {
       const secretName = `${tenantName}-mongodb-secret`;
       await k8sService.deleteSecret(tenantName, secretName);
 
+      log.info({ tenantName }, 'Database deleted successfully');
       res.json({
         message: 'Database deleted successfully'
       });
     } catch (error) {
-      console.error('Database deletion error:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Database deletion failed');
       res.status(500).json({
         error: 'Failed to delete database',
         details: error.message
@@ -153,9 +184,10 @@ class DatabaseController {
    * GET /api/tenants/:tenantName/database/status
    */
   async getDatabaseStatus(req, res) {
-    const { tenantName } = req.params;
-
     try {
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
+
       const secretName = `${tenantName}-mongodb-secret`;
       const secret = await k8sService.getSecret(tenantName, secretName);
 
@@ -185,7 +217,13 @@ class DatabaseController {
         }
       });
     } catch (error) {
-      console.error('Database status error:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to get database status');
       res.status(500).json({
         error: 'Failed to get database status',
         details: error.message
@@ -207,13 +245,14 @@ class DatabaseController {
       }
 
       const result = await atlasService.testConnection();
+      log.info({ project: result.projectName }, 'Atlas connection test successful');
       res.json({
         success: true,
         message: 'Successfully connected to MongoDB Atlas',
         project: result.projectName
       });
     } catch (error) {
-      console.error('Atlas connection test error:', error);
+      log.error({ err: error }, 'Atlas connection test failed');
       res.status(500).json({
         success: false,
         error: 'Failed to connect to Atlas',
@@ -228,10 +267,14 @@ class DatabaseController {
    * Body: { connectionString, username, password, databaseName } (all optional, uses defaults if not provided)
    */
   async connectExistingDatabase(req, res) {
-    const { tenantName } = req.params;
-    const { connectionString, username, password, databaseName } = req.body || {};
-
     try {
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
+      // Validate request body - validates connection string format, credentials
+      const { connectionString, username, password, databaseName } = validateBody(connectDatabaseSchema, req.body || {});
+
+      log.info({ tenantName, hasDatabaseName: !!databaseName }, 'Connecting tenant to existing database');
+
       // Check if namespace exists
       const tenantDetails = await k8sService.getTenantDetails(tenantName);
       if (!tenantDetails) {
@@ -273,15 +316,16 @@ class DatabaseController {
       try {
         await k8sService.restartDeployment(tenantName, 'educationelly-graphql-server');
       } catch (restartError) {
-        console.warn('Failed to restart server deployment:', restartError.message);
+        log.warn({ err: restartError, tenantName, deployment: 'educationelly-graphql-server' }, 'Failed to restart server deployment');
       }
 
       try {
         await k8sService.restartDeployment(tenantName, 'educationelly-graphql-client');
       } catch (restartError) {
-        console.warn('Failed to restart client deployment:', restartError.message);
+        log.warn({ err: restartError, tenantName, deployment: 'educationelly-graphql-client' }, 'Failed to restart client deployment');
       }
 
+      log.info({ tenantName, databaseName: dbName, secretName }, 'Database connected successfully');
       res.status(201).json({
         message: 'Database connected successfully',
         database: {
@@ -291,7 +335,13 @@ class DatabaseController {
         }
       });
     } catch (error) {
-      console.error('Database connection error:', error);
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to connect database');
       res.status(500).json({
         error: 'Failed to connect database',
         details: error.message

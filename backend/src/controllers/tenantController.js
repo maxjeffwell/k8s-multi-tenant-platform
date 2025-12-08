@@ -1,24 +1,26 @@
 import k8sService from '../services/k8sService.js';
 import atlasService from '../services/atlasService.js';
 import ingressService from '../services/ingressService.js';
+import { createLogger } from '../utils/logger.js';
+import {
+  validateBody,
+  validateParams,
+  createTenantSchema,
+  updateTenantSchema,
+  tenantNameParamSchema
+} from '../utils/validation.js';
+
+const log = createLogger('tenant-controller');
 
 class TenantController {
   // Create a new tenant
   async createTenant(req, res) {
     try {
-      const { tenantName, resourceQuota, database } = req.body;
+      // Validate request body using Zod schema
+      const validatedData = validateBody(createTenantSchema, req.body);
+      const { tenantName, resourceQuota, database } = validatedData;
 
-      if (!tenantName) {
-        return res.status(400).json({ error: 'Tenant name is required' });
-      }
-
-      // Validate tenant name (must be valid k8s namespace name)
-      const nameRegex = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
-      if (!nameRegex.test(tenantName)) {
-        return res.status(400).json({
-          error: 'Invalid tenant name. Must be lowercase alphanumeric with hyphens only'
-        });
-      }
+      log.info({ tenantName, hasQuota: !!resourceQuota, hasDatabase: !!database }, 'Creating tenant');
 
       // Create namespace
       const namespace = await k8sService.createNamespace(tenantName, resourceQuota);
@@ -71,8 +73,10 @@ class TenantController {
             secretName: secretName
           };
           response.message = 'Tenant and database configured successfully';
+
+          log.info({ tenantName, databaseName, secretName }, 'Database configured for tenant');
         } catch (dbError) {
-          console.error('Database configuration failed:', dbError);
+          log.error({ err: dbError, tenantName }, 'Database configuration failed');
           response.database = {
             configured: false,
             error: 'Database configuration failed.',
@@ -81,8 +85,16 @@ class TenantController {
         }
       }
 
+      log.info({ tenantName }, 'Tenant created successfully');
       res.status(201).json(response);
     } catch (error) {
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.body?.tenantName }, 'Failed to create tenant');
       res.status(500).json({ error: error.message });
     }
   }
@@ -118,8 +130,10 @@ class TenantController {
         };
       }));
 
+      log.debug({ count: tenants.length }, 'Listed tenants');
       res.json({ tenants });
     } catch (error) {
+      log.error({ err: error }, 'Failed to list tenants');
       res.status(500).json({ error: error.message });
     }
   }
@@ -127,7 +141,8 @@ class TenantController {
   // Get tenant details
   async getTenant(req, res) {
     try {
-      const { tenantName } = req.params;
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
       const details = await k8sService.getTenantDetails(tenantName);
 
       // Check database status
@@ -188,6 +203,13 @@ class TenantController {
         ingresses: ingresses
       });
     } catch (error) {
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to get tenant details');
       res.status(500).json({ error: error.message });
     }
   }
@@ -195,7 +217,8 @@ class TenantController {
   // Get tenant metrics
   async getTenantMetrics(req, res) {
     try {
-      const { tenantName } = req.params;
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
       const metrics = await k8sService.getNamespaceMetrics(tenantName);
       const details = await k8sService.getTenantDetails(tenantName);
 
@@ -216,6 +239,13 @@ class TenantController {
 
       res.json(metrics);
     } catch (error) {
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to get tenant metrics');
       res.status(500).json({ error: error.message });
     }
   }
@@ -223,16 +253,17 @@ class TenantController {
   // Update a tenant (resource quotas)
   async updateTenant(req, res) {
     try {
-      const { tenantName } = req.params;
-      const { resourceQuota } = req.body;
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
+      // Validate request body - ensures resourceQuota has valid cpu/memory format and limits
+      const { resourceQuota } = validateBody(updateTenantSchema, req.body);
 
-      if (!resourceQuota) {
-        return res.status(400).json({ error: 'Resource quota is required' });
-      }
+      log.info({ tenantName, resourceQuota }, 'Updating tenant resource quota');
 
       // Update the resource quota
       const result = await k8sService.updateResourceQuota(tenantName, resourceQuota);
 
+      log.info({ tenantName }, 'Tenant updated successfully');
       res.json({
         message: 'Tenant updated successfully',
         tenant: {
@@ -241,6 +272,13 @@ class TenantController {
         }
       });
     } catch (error) {
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to update tenant');
       res.status(500).json({ error: error.message });
     }
   }
@@ -248,14 +286,18 @@ class TenantController {
   // Delete a tenant
   async deleteTenant(req, res) {
     try {
-      const { tenantName } = req.params;
+      // Validate tenant name parameter
+      const { tenantName } = validateParams(tenantNameParamSchema, req.params);
+
+      log.info({ tenantName }, 'Deleting tenant');
 
       // Delete database user from Atlas if configured
       if (atlasService.isConfigured()) {
         try {
           await atlasService.deleteDatabaseUser(tenantName);
+          log.debug({ tenantName }, 'Deleted database user from Atlas');
         } catch (dbError) {
-          console.error('Failed to delete database user:', dbError);
+          log.warn({ err: dbError, tenantName }, 'Failed to delete database user');
           // Continue with namespace deletion even if database deletion fails
         }
       }
@@ -263,19 +305,28 @@ class TenantController {
       // Delete ingresses for the tenant
       try {
         await ingressService.deleteTenantIngresses(tenantName);
+        log.debug({ tenantName }, 'Deleted tenant ingresses');
       } catch (ingressError) {
-        console.error('Failed to delete ingresses:', ingressError);
+        log.warn({ err: ingressError, tenantName }, 'Failed to delete ingresses');
         // Continue with namespace deletion even if ingress deletion fails
       }
 
       // Delete the namespace (this will also delete the secret and remaining resources)
       const result = await k8sService.deleteTenant(tenantName);
 
+      log.info({ tenantName }, 'Tenant deleted successfully');
       res.json({
         message: 'Tenant and associated resources deleted successfully',
         details: result
       });
     } catch (error) {
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to delete tenant');
       res.status(500).json({ error: error.message });
     }
   }
