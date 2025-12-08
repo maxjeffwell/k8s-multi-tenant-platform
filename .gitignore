@@ -3,13 +3,41 @@
 .env.production
 .env.local
 .env.*.local
+.env.development
+.env.test
+.env.staging
 
 # Node modules
 node_modules/
 
+# Lock file backups
+package-lock.json.bak
+yarn.lock.bak
+
 # Build outputs
 build/
 dist/
+
+# Cache and temporary files
+.eslintcache
+.vite/
+vite.config.*.timestamp-*
+.cache/
+tmp/
+temp/
+.tmp/
+
+# TypeScript
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
 
 # Logs
 *.log
@@ -22,7 +50,11 @@ yarn-error.log*
 .idea/
 *.swp
 *.swo
+*.sublime-*
+.history/
+.vscode-test/
 .artifact/
+.artiforge/
 *~
 
 # OS files
@@ -32,6 +64,7 @@ Thumbs.db
 # Testing
 coverage/
 .nyc_output/
+.pytest_cache/
 
 # Docker
 *.tar
