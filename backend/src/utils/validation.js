@@ -241,6 +241,7 @@ export const databaseKeySchema = z
 export const createTenantSchema = z.object({
   tenantName: tenantNameSchema,
   resourceQuota: resourceQuotaSchema.optional(),
+  appType: appTypeSchema,
   database: z.object({
     mongoUri: mongoConnectionStringSchema.optional(),
     username: databaseUsernameSchema.optional(),
