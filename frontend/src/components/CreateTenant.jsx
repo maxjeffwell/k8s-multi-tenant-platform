@@ -1,36 +1,23 @@
 import { useState } from 'react';
 import { tenantApi } from '../services/api';
 
+const DATABASES = {
+  'educationelly': 'Educationelly (MongoDB)',
+  'educationelly-graphql': 'Educationelly GraphQL (MongoDB)',
+  'mongo': 'Generic MongoDB',
+  'postgres': 'PostgreSQL (AWS RDS)',
+  'neon': 'Neon DB (PostgreSQL)'
+};
+
 function CreateTenant({ onSuccess, onCancel }) {
   const [tenantName, setTenantName] = useState('');
   const [cpu, setCpu] = useState('2');
   const [memory, setMemory] = useState('4Gi');
   const [configureDatabase, setConfigureDatabase] = useState(false);
-  const [databaseOption, setDatabaseOption] = useState('graphql-test');
+  const [databaseOption, setDatabaseOption] = useState('educationelly');
   const [customMongoUri, setCustomMongoUri] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  const databaseOptions = {
-    'graphql-test': {
-      label: 'GraphQL Database (test)',
-      uri: import.meta.env.VITE_MONGODB_GRAPHQL_URI || '',
-      username: import.meta.env.VITE_MONGODB_GRAPHQL_USERNAME || '',
-      password: import.meta.env.VITE_MONGODB_GRAPHQL_PASSWORD || '',
-      database: import.meta.env.VITE_MONGODB_GRAPHQL_DATABASE || 'test'
-    },
-    'rest-educationelly': {
-      label: 'REST API Database (educationelly-db)',
-      uri: import.meta.env.VITE_MONGODB_REST_URI || '',
-      username: import.meta.env.VITE_MONGODB_REST_USERNAME || '',
-      password: import.meta.env.VITE_MONGODB_REST_PASSWORD || '',
-      database: import.meta.env.VITE_MONGODB_REST_DATABASE || 'educationelly-db'
-    },
-    'custom': {
-      label: 'Custom MongoDB URI',
-      uri: null
-    }
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -42,7 +29,6 @@ function CreateTenant({ onSuccess, onCancel }) {
 
       // Add database configuration if enabled
       if (configureDatabase) {
-        const selectedDb = databaseOptions[databaseOption];
         if (databaseOption === 'custom') {
           if (!customMongoUri) {
             setError('Please enter a custom MongoDB URI');
@@ -51,12 +37,8 @@ function CreateTenant({ onSuccess, onCancel }) {
           }
           tenantConfig.database = { mongoUri: customMongoUri };
         } else {
-          tenantConfig.database = {
-            mongoUri: selectedDb.uri,
-            username: selectedDb.username,
-            password: selectedDb.password,
-            databaseName: selectedDb.database
-          };
+          // Send the selected database key to the backend
+          tenantConfig.database = { databaseKey: databaseOption };
         }
       }
 
@@ -81,7 +63,7 @@ function CreateTenant({ onSuccess, onCancel }) {
             value={tenantName}
             onChange={(e) => setTenantName(e.target.value)}
             placeholder="demo-client-a"
-            pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+            pattern="^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
             title="Lowercase alphanumeric with hyphens only"
             required
           />
@@ -133,11 +115,12 @@ function CreateTenant({ onSuccess, onCancel }) {
                 onChange={(e) => setDatabaseOption(e.target.value)}
                 className="form-select"
               >
-                {Object.entries(databaseOptions).map(([key, option]) => (
+                {Object.entries(DATABASES).map(([key, label]) => (
                   <option key={key} value={key}>
-                    {option.label}
+                    {label}
                   </option>
                 ))}
+                <option value="custom">Custom MongoDB URI</option>
               </select>
             </div>
 
@@ -158,8 +141,8 @@ function CreateTenant({ onSuccess, onCancel }) {
 
             {databaseOption !== 'custom' && (
               <div className="database-info-preview">
-                <p><strong>Database:</strong> {databaseOptions[databaseOption].database}</p>
-                <p><small>This database will be configured for this tenant's applications</small></p>
+                <p><strong>Selected Configuration:</strong> {DATABASES[databaseOption]}</p>
+                <p><small>Credentials will be automatically injected from secure storage.</small></p>
               </div>
             )}
           </div>
