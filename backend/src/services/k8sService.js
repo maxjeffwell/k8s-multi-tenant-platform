@@ -214,6 +214,48 @@ class K8sService {
     }
   }
 
+  // Get credentials from the shared platform secret
+  async getSharedDatabaseCredentials(databaseKey) {
+    try {
+      // Read the master secret from default namespace
+      const secret = await this.getSecret('default', 'tenantflow-db-credentials');
+      if (!secret || !secret.data) {
+        throw new Error('Shared database credentials secret not found');
+      }
+
+      // Helper to decode base64
+      const decode = (val) => val ? Buffer.from(val, 'base64').toString('utf-8') : null;
+      const data = secret.data;
+
+      let prefix = '';
+      switch (databaseKey) {
+        case 'educationelly-db':
+          prefix = 'EDUCATIONELLY_DB';
+          break;
+        case 'spaced-repetition-db':
+          prefix = 'SPACED_REPETITION';
+          break;
+        case 'postgres-aws':
+          prefix = 'POSTGRES_AWS';
+          break;
+        case 'postgres-neon':
+          prefix = 'NEONDB';
+          break;
+        default:
+          throw new Error(`Unknown database key: ${databaseKey}`);
+      }
+
+      return {
+        connectionString: decode(data[`${prefix}_CONNECTION_STRING`]),
+        username: decode(data[`${prefix}_USERNAME`]),
+        password: decode(data[`${prefix}_PASSWORD`]),
+        databaseName: 'default' // Placeholder, often in connection string
+      };
+    } catch (error) {
+      throw new Error(`Failed to retrieve shared credentials: ${error.message}`);
+    }
+  }
+
   // Deploy generic application to a namespace
   async deployEducationelly(namespace, config = {}) {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
@@ -227,6 +269,7 @@ class K8sService {
       clientPort,
       env = [],
       databaseSecretName = null,
+      databaseKey = null,
       graphqlEndpoint = null // Public GraphQL endpoint URL
     } = config;
 
@@ -240,8 +283,27 @@ class K8sService {
     }
 
     try {
-      // Check if database secret exists in namespace
-      const secretName = databaseSecretName || `${validatedNamespace}-mongodb-secret`;
+      // Handle Database Secret
+      let secretName = databaseSecretName;
+
+      // If a database key is provided, setup the secret from shared credentials
+      if (databaseKey) {
+        const credentials = await this.getSharedDatabaseCredentials(databaseKey);
+        secretName = `${validatedNamespace}-db-secret`;
+        
+        await this.createDatabaseSecret(
+          validatedNamespace,
+          secretName,
+          credentials.connectionString,
+          credentials.username,
+          credentials.password,
+          credentials.databaseName
+        );
+      } else if (!secretName) {
+         // Default fallback
+         secretName = `${validatedNamespace}-mongodb-secret`;
+      }
+      
       const secretExists = await this.getSecret(validatedNamespace, secretName);
 
       // Deploy Server with database secret if available
@@ -368,6 +430,11 @@ class K8sService {
             labels: {
               app: validatedAppName,
               tenant: validatedNamespace
+            },
+            annotations: {
+              'prometheus.io/scrape': 'true',
+              'prometheus.io/path': '/metrics',
+              'prometheus.io/port': port.toString()
             }
           },
           spec: {
@@ -647,6 +714,39 @@ class K8sService {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
     const validatedSecretName = validateResourceName(secretName, 'secret');
 
+    // Determine database type
+    const isPostgres = connectionString && (
+      connectionString.startsWith('postgres://') || 
+      connectionString.startsWith('postgresql://')
+    );
+
+    const stringData = {
+      // Common credentials
+      'DB_USERNAME': username,
+      'DB_PASSWORD': password,
+      'DB_NAME': databaseName,
+      // Generic fallback (many frameworks use this)
+      'DATABASE_URL': connectionString
+    };
+
+    if (isPostgres) {
+      // PostgreSQL specific env vars
+      stringData['POSTGRES_URL'] = connectionString;
+      stringData['PG_CONNECTION_STRING'] = connectionString;
+      stringData['POSTGRES_USER'] = username;
+      stringData['POSTGRES_PASSWORD'] = password;
+      stringData['POSTGRES_DB'] = databaseName;
+    } else {
+      // MongoDB specific env vars (default assumption if not postgres)
+      stringData['MONGODB_URI'] = connectionString;
+      stringData['MONGODB_URL'] = connectionString; // Express.js convention
+      stringData['MONGO_URI'] = connectionString;   // Alternate naming
+      stringData['MONGO_URL'] = connectionString;   // Another common variant
+      stringData['MONGO_USERNAME'] = username;
+      stringData['MONGO_PASSWORD'] = password;
+      stringData['MONGO_DATABASE'] = databaseName;
+    }
+
     const secret = {
       apiVersion: 'v1',
       kind: 'Secret',
@@ -660,15 +760,7 @@ class K8sService {
         }
       },
       type: 'Opaque',
-      stringData: {
-        'MONGODB_URI': connectionString,  // Primary - used by educationelly-graphql-server
-        'MONGODB_URL': connectionString,  // Express.js convention
-        'MONGO_URI': connectionString,    // Alternate naming
-        'MONGO_URL': connectionString,    // Another common variant
-        'MONGO_USERNAME': username,
-        'MONGO_PASSWORD': password,
-        'MONGO_DATABASE': databaseName
-      }
+      stringData: stringData
     };
 
     try {
