@@ -1,5 +1,8 @@
 import express from 'express';
 import axios from 'axios';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('prometheus-routes');
 
 const router = express.Router();
 const PROMETHEUS_URL = process.env.PROMETHEUS_URL || 'http://192.168.50.119:30090';
@@ -19,7 +22,7 @@ router.get('/query', async (req, res) => {
     const response = await axios.get(`${PROMETHEUS_URL}/api/v1/query`, { params });
     res.json(response.data);
   } catch (error) {
-    console.error('Prometheus query error:', error.message);
+    log.error({ err: error, query: req.query?.query }, 'Prometheus query failed');
     res.status(500).json({
       error: 'Failed to query Prometheus',
       message: error.message
@@ -44,7 +47,7 @@ router.get('/query_range', async (req, res) => {
     const response = await axios.get(`${PROMETHEUS_URL}/api/v1/query_range`, { params });
     res.json(response.data);
   } catch (error) {
-    console.error('Prometheus range query error:', error.message);
+    log.error({ err: error, query: req.query?.query }, 'Prometheus range query failed');
     res.status(500).json({
       error: 'Failed to query Prometheus range',
       message: error.message
@@ -58,7 +61,7 @@ router.get('/labels', async (req, res) => {
     const response = await axios.get(`${PROMETHEUS_URL}/api/v1/labels`);
     res.json(response.data);
   } catch (error) {
-    console.error('Prometheus labels error:', error.message);
+    log.error({ err: error }, 'Failed to get Prometheus labels');
     res.status(500).json({
       error: 'Failed to get Prometheus labels',
       message: error.message
@@ -73,7 +76,7 @@ router.get('/label/:name/values', async (req, res) => {
     const response = await axios.get(`${PROMETHEUS_URL}/api/v1/label/${name}/values`);
     res.json(response.data);
   } catch (error) {
-    console.error('Prometheus label values error:', error.message);
+    log.error({ err: error, labelName: req.params?.name }, 'Failed to get Prometheus label values');
     res.status(500).json({
       error: 'Failed to get Prometheus label values',
       message: error.message
@@ -93,7 +96,7 @@ router.get('/series', async (req, res) => {
     const response = await axios.get(`${PROMETHEUS_URL}/api/v1/series`, { params });
     res.json(response.data);
   } catch (error) {
-    console.error('Prometheus series error:', error.message);
+    log.error({ err: error, match: req.query?.match }, 'Failed to get Prometheus series');
     res.status(500).json({
       error: 'Failed to get Prometheus series',
       message: error.message
@@ -107,6 +110,7 @@ router.get('/health', async (req, res) => {
     const response = await axios.get(`${PROMETHEUS_URL}/-/healthy`);
     res.json({ status: 'ok', prometheus: response.status === 200 });
   } catch (error) {
+    log.warn({ err: error }, 'Prometheus health check failed');
     res.status(500).json({
       status: 'error',
       message: 'Prometheus is not accessible'

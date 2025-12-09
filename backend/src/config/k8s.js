@@ -1,4 +1,7 @@
 import * as k8s from '@kubernetes/client-node';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('k8s-config');
 
 const kc = new k8s.KubeConfig();
 
@@ -7,10 +10,9 @@ let k8sConfigLoaded = false;
 try {
   kc.loadFromDefault();
   k8sConfigLoaded = true;
-  console.log('✓ Kubernetes config loaded successfully');
+  log.info('Kubernetes config loaded successfully');
 } catch (error) {
-  console.warn('⚠ Kubernetes config not available:', error.message);
-  console.warn('  Running in limited mode - K8s operations will fail');
+  log.warn({ err: error }, 'Kubernetes config not available - running in limited mode');
 }
 
 const k8sApi = kc.makeApiClient(k8s.CoreV1Api);

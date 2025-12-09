@@ -1,12 +1,73 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { k8sNetworkingApi } from '../config/k8s.js';
+import { createLogger } from '../utils/logger.js';
 
-const execAsync = promisify(exec);
+// Default logger - can be overridden via dependency injection for testing
+const defaultLog = createLogger('ingress-service');
+
+// Input validation for Kubernetes resource names
+// RFC 1123: lowercase alphanumeric, hyphens allowed (not at start/end), max 63 chars
+const K8S_NAME_REGEX = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+
+function validateResourceName(name, resourceType = 'resource') {
+  if (!name || typeof name !== 'string') {
+    throw new Error(`Invalid ${resourceType} name: name is required`);
+  }
+
+  const trimmed = name.trim().toLowerCase();
+
+  if (trimmed.length === 0) {
+    throw new Error(`Invalid ${resourceType} name: cannot be empty`);
+  }
+
+  if (trimmed.length > 63) {
+    throw new Error(`Invalid ${resourceType} name: exceeds 63 character limit`);
+  }
+
+  if (!K8S_NAME_REGEX.test(trimmed)) {
+    throw new Error(
+      `Invalid ${resourceType} name "${name}": must be lowercase alphanumeric, ` +
+      `may contain hyphens (not at start/end), max 63 characters`
+    );
+  }
+
+  return trimmed;
+}
+
+// Helper to extract response body from K8s client responses
+function extractBody(response) {
+  return response?.body || response;
+}
+
+// Helper to check if error is "not found"
+function isNotFoundError(error) {
+  const statusCode = error?.response?.statusCode || error?.statusCode || error?.code;
+  return statusCode === 404 ||
+         (error?.message && error.message.toLowerCase().includes('not found'));
+}
+
+// Helper to check if error is "already exists"
+function isAlreadyExistsError(error) {
+  const statusCode = error?.response?.statusCode || error?.statusCode;
+  return statusCode === 409 ||
+         (error?.message && error.message.toLowerCase().includes('already exists'));
+}
 
 class IngressService {
-  constructor() {
-    this.ingressDomain = process.env.INGRESS_DOMAIN || 'localhost.nip.io';
-    this.ingressClass = process.env.INGRESS_CLASS || 'nginx';
+  /**
+   * Create an IngressService instance
+   * @param {Object} deps - Optional dependencies for testing
+   * @param {Object} deps.networkingApi - Kubernetes NetworkingV1Api client
+   * @param {Object} deps.config - Configuration overrides
+   * @param {string} deps.config.ingressDomain - Base ingress domain
+   * @param {string} deps.config.ingressClass - Ingress class name
+   * @param {Object} deps.logger - Logger instance
+   */
+  constructor(deps = {}) {
+    const config = deps.config || {};
+    this.networkingApi = deps.networkingApi || k8sNetworkingApi;
+    this.ingressDomain = config.ingressDomain || process.env.INGRESS_DOMAIN || 'localhost.nip.io';
+    this.ingressClass = config.ingressClass || process.env.INGRESS_CLASS || 'nginx';
+    this.log = deps.logger || defaultLog;
   }
 
   /**
@@ -44,18 +105,19 @@ class IngressService {
    * @returns {Promise<Object>}
    */
   async createClientIngress(tenantName, serviceName = 'educationelly-graphql-client', servicePort = 3000) {
-    const ingressName = `${tenantName}-client-ingress`;
-    const host = `${tenantName}.${this.ingressDomain}`;
+    const validatedTenant = validateResourceName(tenantName, 'namespace');
+    const ingressName = `${validatedTenant}-client-ingress`;
+    const host = `${validatedTenant}.${this.ingressDomain}`;
 
     const ingress = {
       apiVersion: 'networking.k8s.io/v1',
       kind: 'Ingress',
       metadata: {
         name: ingressName,
-        namespace: tenantName,
+        namespace: validatedTenant,
         labels: {
           'app.kubernetes.io/managed-by': 'multi-tenant-platform',
-          'tenant': tenantName,
+          'tenant': validatedTenant,
           'ingress-type': 'client'
         },
         annotations: {
@@ -89,9 +151,18 @@ class IngressService {
     };
 
     try {
-      const ingressJson = JSON.stringify(ingress);
-      const applyCmd = `echo '${ingressJson}' | kubectl apply -f -`;
-      await execAsync(applyCmd);
+      try {
+        await this.networkingApi.createNamespacedIngress(validatedTenant, ingress);
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          // Update existing ingress
+          await this.networkingApi.replaceNamespacedIngress(ingressName, validatedTenant, ingress);
+        } else {
+          throw error;
+        }
+      }
+
+      this.log.info({ ingressName, host, namespace: validatedTenant }, 'Client ingress created');
 
       return {
         name: ingressName,
@@ -99,6 +170,7 @@ class IngressService {
         host: host
       };
     } catch (error) {
+      this.log.error({ err: error, ingressName, namespace: validatedTenant }, 'Failed to create client ingress');
       throw new Error(`Failed to create client ingress: ${error.message}`);
     }
   }
@@ -111,18 +183,19 @@ class IngressService {
    * @returns {Promise<Object>}
    */
   async createServerIngress(tenantName, serviceName = 'educationelly-graphql-server', servicePort = 4000) {
-    const ingressName = `${tenantName}-server-ingress`;
-    const host = `${tenantName}-api.${this.ingressDomain}`;
+    const validatedTenant = validateResourceName(tenantName, 'namespace');
+    const ingressName = `${validatedTenant}-server-ingress`;
+    const host = `${validatedTenant}-api.${this.ingressDomain}`;
 
     const ingress = {
       apiVersion: 'networking.k8s.io/v1',
       kind: 'Ingress',
       metadata: {
         name: ingressName,
-        namespace: tenantName,
+        namespace: validatedTenant,
         labels: {
           'app.kubernetes.io/managed-by': 'multi-tenant-platform',
-          'tenant': tenantName,
+          'tenant': validatedTenant,
           'ingress-type': 'server'
         },
         annotations: {
@@ -156,9 +229,18 @@ class IngressService {
     };
 
     try {
-      const ingressJson = JSON.stringify(ingress);
-      const applyCmd = `echo '${ingressJson}' | kubectl apply -f -`;
-      await execAsync(applyCmd);
+      try {
+        await this.networkingApi.createNamespacedIngress(validatedTenant, ingress);
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          // Update existing ingress
+          await this.networkingApi.replaceNamespacedIngress(ingressName, validatedTenant, ingress);
+        } else {
+          throw error;
+        }
+      }
+
+      this.log.info({ ingressName, host, namespace: validatedTenant }, 'Server ingress created');
 
       return {
         name: ingressName,
@@ -166,6 +248,7 @@ class IngressService {
         host: host
       };
     } catch (error) {
+      this.log.error({ err: error, ingressName, namespace: validatedTenant }, 'Failed to create server ingress');
       throw new Error(`Failed to create server ingress: ${error.message}`);
     }
   }
@@ -176,12 +259,13 @@ class IngressService {
    * @returns {Promise<Array>}
    */
   async getTenantIngresses(tenantName) {
-    try {
-      const getCmd = `kubectl get ingress -n ${tenantName} -o json`;
-      const { stdout } = await execAsync(getCmd);
-      const result = JSON.parse(stdout);
+    const validatedTenant = validateResourceName(tenantName, 'namespace');
 
-      if (!result.items || result.items.length === 0) {
+    try {
+      const response = await this.networkingApi.listNamespacedIngress(validatedTenant);
+      const result = extractBody(response);
+
+      if (!result?.items || result.items.length === 0) {
         return [];
       }
 
@@ -193,10 +277,10 @@ class IngressService {
         createdAt: ingress.metadata.creationTimestamp
       }));
     } catch (error) {
-      // If namespace has no ingresses, return empty array
-      if (error.message.includes('No resources found')) {
+      if (isNotFoundError(error)) {
         return [];
       }
+      this.log.error({ err: error, namespace: validatedTenant }, 'Failed to get tenant ingresses');
       throw new Error(`Failed to get tenant ingresses: ${error.message}`);
     }
   }
@@ -207,15 +291,32 @@ class IngressService {
    * @returns {Promise<Object>}
    */
   async deleteTenantIngresses(tenantName) {
+    const validatedTenant = validateResourceName(tenantName, 'namespace');
+
     try {
-      const deleteCmd = `kubectl delete ingress -n ${tenantName} --all`;
-      await execAsync(deleteCmd);
-      return { message: `All ingresses for ${tenantName} deleted successfully` };
-    } catch (error) {
-      // If no ingresses exist, consider it success
-      if (error.message.includes('No resources found')) {
-        return { message: `No ingresses found for ${tenantName}` };
+      // Get all ingresses in the namespace
+      const response = await this.networkingApi.listNamespacedIngress(validatedTenant);
+      const ingresses = extractBody(response)?.items || [];
+
+      if (ingresses.length === 0) {
+        return { message: `No ingresses found for ${validatedTenant}` };
       }
+
+      // Delete each ingress
+      const deletePromises = ingresses.map(ingress =>
+        this.networkingApi.deleteNamespacedIngress(ingress.metadata.name, validatedTenant)
+      );
+
+      await Promise.all(deletePromises);
+
+      this.log.info({ namespace: validatedTenant, count: ingresses.length }, 'Tenant ingresses deleted');
+
+      return { message: `All ingresses for ${validatedTenant} deleted successfully` };
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return { message: `No ingresses found for ${validatedTenant}` };
+      }
+      this.log.error({ err: error, namespace: validatedTenant }, 'Failed to delete tenant ingresses');
       throw new Error(`Failed to delete tenant ingresses: ${error.message}`);
     }
   }
@@ -227,10 +328,12 @@ class IngressService {
    * @returns {Promise<Object>}
    */
   async checkIngressReady(tenantName, ingressName) {
+    const validatedTenant = validateResourceName(tenantName, 'namespace');
+    const validatedIngress = validateResourceName(ingressName, 'ingress');
+
     try {
-      const getCmd = `kubectl get ingress ${ingressName} -n ${tenantName} -o json`;
-      const { stdout } = await execAsync(getCmd);
-      const ingress = JSON.parse(stdout);
+      const response = await this.networkingApi.readNamespacedIngress(validatedIngress, validatedTenant);
+      const ingress = extractBody(response);
 
       const hasIP = ingress.status?.loadBalancer?.ingress?.[0]?.ip !== undefined;
       const host = ingress.spec.rules?.[0]?.host;
@@ -242,6 +345,7 @@ class IngressService {
         ip: ingress.status?.loadBalancer?.ingress?.[0]?.ip || null
       };
     } catch (error) {
+      this.log.error({ err: error, ingressName: validatedIngress, namespace: validatedTenant }, 'Failed to check ingress readiness');
       throw new Error(`Failed to check ingress readiness: ${error.message}`);
     }
   }
@@ -252,13 +356,29 @@ class IngressService {
    */
   async isIngressControllerAvailable() {
     try {
-      const getCmd = `kubectl get ingressclass ${this.ingressClass} -o json`;
-      await execAsync(getCmd);
-      return true;
+      // List ingress classes to check if the specified class exists
+      const response = await this.networkingApi.listIngressClass();
+      const classes = extractBody(response)?.items || [];
+
+      return classes.some(ic => ic.metadata.name === this.ingressClass);
     } catch (error) {
+      this.log.warn({ err: error, ingressClass: this.ingressClass }, 'Failed to check ingress controller');
       return false;
     }
   }
 }
 
-export default new IngressService();
+// Export the class for testing with dependency injection
+export { IngressService };
+
+// Export validation helpers for testing
+export { validateResourceName, isNotFoundError, isAlreadyExistsError };
+
+// Factory function for creating instances with custom dependencies
+export function createIngressService(deps = {}) {
+  return new IngressService(deps);
+}
+
+// Default singleton instance for production use
+const ingressService = new IngressService();
+export default ingressService;

@@ -1,11 +1,26 @@
 import axios from 'axios';
+import { createLogger } from '../utils/logger.js';
+
+// Default logger - can be overridden via dependency injection for testing
+const defaultLog = createLogger('prometheus-service');
 
 class PrometheusService {
-  constructor() {
+  /**
+   * Create a PrometheusService instance
+   * @param {Object} deps - Optional dependencies for testing
+   * @param {Object} deps.httpClient - HTTP client (defaults to axios)
+   * @param {Object} deps.config - Configuration overrides
+   * @param {string} deps.config.prometheusUrl - Prometheus server URL
+   * @param {Object} deps.logger - Logger instance
+   */
+  constructor(deps = {}) {
+    const config = deps.config || {};
     // Prometheus service URL - can be configured via environment variable
     // Default to NodePort for external access (outside cluster)
-    this.prometheusUrl = process.env.PROMETHEUS_URL || 'http://192.168.50.119:30090';
+    this.prometheusUrl = config.prometheusUrl || process.env.PROMETHEUS_URL || 'http://192.168.50.119:30090';
     this.baseUrl = `${this.prometheusUrl}/api/v1`;
+    this.httpClient = deps.httpClient || axios;
+    this.log = deps.logger || defaultLog;
   }
 
   /**
@@ -21,7 +36,7 @@ class PrometheusService {
         params.time = time;
       }
 
-      const response = await axios.get(`${this.baseUrl}/query`, { params });
+      const response = await this.httpClient.get(`${this.baseUrl}/query`, { params });
 
       if (response.data.status === 'success') {
         return response.data.data;
@@ -29,7 +44,7 @@ class PrometheusService {
         throw new Error(`Prometheus query failed: ${response.data.error}`);
       }
     } catch (error) {
-      console.error('Prometheus query error:', error.message);
+      this.log.error({ err: error, query }, 'Prometheus query failed');
       throw new Error(`Failed to query Prometheus: ${error.message}`);
     }
   }
@@ -45,7 +60,7 @@ class PrometheusService {
   async queryRange(query, start, end, step = '15s') {
     try {
       const params = { query, start, end, step };
-      const response = await axios.get(`${this.baseUrl}/query_range`, { params });
+      const response = await this.httpClient.get(`${this.baseUrl}/query_range`, { params });
 
       if (response.data.status === 'success') {
         return response.data.data;
@@ -53,7 +68,7 @@ class PrometheusService {
         throw new Error(`Prometheus range query failed: ${response.data.error}`);
       }
     } catch (error) {
-      console.error('Prometheus range query error:', error.message);
+      this.log.error({ err: error, query, start, end, step }, 'Prometheus range query failed');
       throw new Error(`Failed to query Prometheus range: ${error.message}`);
     }
   }
@@ -281,4 +296,14 @@ class PrometheusService {
   }
 }
 
-export default new PrometheusService();
+// Export the class for testing with dependency injection
+export { PrometheusService };
+
+// Factory function for creating instances with custom dependencies
+export function createPrometheusService(deps = {}) {
+  return new PrometheusService(deps);
+}
+
+// Default singleton instance for production use
+const prometheusService = new PrometheusService();
+export default prometheusService;

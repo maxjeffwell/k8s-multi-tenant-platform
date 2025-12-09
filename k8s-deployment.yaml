@@ -1,0 +1,326 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tenantflow-backend
+  namespace: default
+  labels:
+    app: tenantflow
+    portfolio: "true"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tenantflow-manager
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "services", "resourcequotas", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies", "ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tenantflow-manager-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tenantflow-manager
+subjects:
+  - kind: ServiceAccount
+    name: tenantflow-backend
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenantflow-backend
+  namespace: default
+  labels:
+    app: tenantflow
+    component: backend
+    portfolio: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tenantflow
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: tenantflow
+        component: backend
+        portfolio: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+    spec:
+      serviceAccountName: tenantflow-backend
+      containers:
+      - name: backend
+        image: tenantflow-backend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "3000"
+        - name: INGRESS_DOMAIN
+          value: "el-jefe.me"
+        - name: INGRESS_CLASS
+          value: "traefik"
+        # MongoDB Atlas API Credentials
+        - name: ATLAS_PUBLIC_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: ATLAS_PUBLIC_KEY
+        - name: ATLAS_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: ATLAS_PRIVATE_KEY
+        - name: ATLAS_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: ATLAS_PROJECT_ID
+        - name: ATLAS_CLUSTER_NAME
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: ATLAS_CLUSTER_NAME
+        - name: ATLAS_CLUSTER_URL
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: ATLAS_CLUSTER_URL
+        # Test Database
+        - name: TEST_DB_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: TEST_DB_CONNECTION_STRING
+        - name: TEST_DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: TEST_DB_USERNAME
+        - name: TEST_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: TEST_DB_PASSWORD
+        # Educationelly Database
+        - name: EDUCATIONELLY_DB_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: EDUCATIONELLY_DB_CONNECTION_STRING
+        - name: EDUCATIONELLY_DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: EDUCATIONELLY_DB_USERNAME
+        - name: EDUCATIONELLY_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: EDUCATIONELLY_DB_PASSWORD
+        # Spaced Repetition Database
+        - name: SPACED_REPETITION_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: SPACED_REPETITION_CONNECTION_STRING
+        - name: SPACED_REPETITION_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: SPACED_REPETITION_USERNAME
+        - name: SPACED_REPETITION_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: SPACED_REPETITION_PASSWORD
+        # PostgreSQL AWS RDS
+        - name: POSTGRES_AWS_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: POSTGRES_AWS_CONNECTION_STRING
+        - name: POSTGRES_AWS_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: POSTGRES_AWS_USERNAME
+        - name: POSTGRES_AWS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: POSTGRES_AWS_PASSWORD
+        # Neon PostgreSQL
+        - name: NEONDB_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: NEONDB_CONNECTION_STRING
+        - name: NEONDB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: NEONDB_USERNAME
+        - name: NEONDB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-db-credentials
+              key: NEONDB_PASSWORD
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenantflow-backend
+  namespace: default
+  labels:
+    app: tenantflow
+    component: backend
+    portfolio: "true"
+spec:
+  selector:
+    app: tenantflow
+    component: backend
+  ports:
+  - port: 3000
+    targetPort: 3000
+    name: http
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenantflow-frontend
+  namespace: default
+  labels:
+    app: tenantflow
+    component: frontend
+    portfolio: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tenantflow
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: tenantflow
+        component: frontend
+        portfolio: "true"
+    spec:
+      containers:
+      - name: frontend
+        image: tenantflow-frontend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenantflow-frontend
+  namespace: default
+  labels:
+    app: tenantflow
+    component: frontend
+    portfolio: "true"
+spec:
+  selector:
+    app: tenantflow
+    component: frontend
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tenantflow-ingress
+  namespace: default
+  labels:
+    app: tenantflow
+    portfolio: "true"
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: tenantflow.el-jefe.me
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: tenantflow-backend
+            port:
+              number: 3000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: tenantflow-frontend
+            port:
+              number: 80

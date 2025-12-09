@@ -3,6 +3,9 @@ import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('grafana-routes');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,7 +21,7 @@ router.get('/dashboard/topology', async (req, res) => {
     const dashboardJson = await fs.readFile(dashboardPath, 'utf-8');
     res.json(JSON.parse(dashboardJson));
   } catch (error) {
-    console.error('Error reading dashboard:', error);
+    log.error({ err: error }, 'Failed to read dashboard configuration');
     res.status(500).json({ error: 'Failed to read dashboard configuration' });
   }
 });
@@ -40,6 +43,7 @@ router.post('/dashboard/import', async (req, res) => {
       grafanaAuth
     );
 
+    log.info({ uid: response.data.uid }, 'Dashboard imported successfully');
     res.json({
       success: true,
       message: 'Dashboard imported successfully',
@@ -47,7 +51,7 @@ router.post('/dashboard/import', async (req, res) => {
       uid: response.data.uid
     });
   } catch (error) {
-    console.error('Error importing dashboard:', error.message);
+    log.error({ err: error }, 'Failed to import dashboard to Grafana');
     res.status(500).json({
       error: 'Failed to import dashboard to Grafana',
       message: error.message,
@@ -127,7 +131,7 @@ router.get('/topology/data', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error generating topology data:', error.message);
+    log.error({ err: error }, 'Failed to generate topology data');
     res.status(500).json({
       error: 'Failed to generate topology data',
       message: error.message

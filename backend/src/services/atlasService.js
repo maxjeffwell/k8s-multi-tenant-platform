@@ -1,14 +1,42 @@
 import crypto from 'crypto';
 import DigestClient from 'digest-fetch';
+import { createLogger } from '../utils/logger.js';
+
+// Default logger - can be overridden via dependency injection for testing
+const defaultLog = createLogger('atlas-service');
 
 class AtlasService {
-  constructor() {
-    this.baseUrl = 'https://cloud.mongodb.com/api/atlas/v2';
-    this.publicKey = process.env.ATLAS_PUBLIC_KEY;
-    this.privateKey = process.env.ATLAS_PRIVATE_KEY;
-    this.projectId = process.env.ATLAS_PROJECT_ID;
-    this.clusterName = process.env.ATLAS_CLUSTER_NAME;
-    this.client = new DigestClient(this.publicKey, this.privateKey);
+  /**
+   * Create an AtlasService instance
+   * @param {Object} deps - Optional dependencies for testing
+   * @param {Object} deps.httpClient - HTTP client for making requests (defaults to DigestClient)
+   * @param {Object} deps.config - Configuration overrides
+   * @param {string} deps.config.baseUrl - Atlas API base URL
+   * @param {string} deps.config.publicKey - Atlas public API key
+   * @param {string} deps.config.privateKey - Atlas private API key
+   * @param {string} deps.config.projectId - Atlas project ID
+   * @param {string} deps.config.clusterName - Atlas cluster name
+   * @param {string} deps.config.clusterUrl - Atlas cluster URL
+   * @param {Object} deps.logger - Logger instance
+   */
+  constructor(deps = {}) {
+    const config = deps.config || {};
+    this.baseUrl = config.baseUrl || 'https://cloud.mongodb.com/api/atlas/v2';
+    this.publicKey = config.publicKey || process.env.ATLAS_PUBLIC_KEY;
+    this.privateKey = config.privateKey || process.env.ATLAS_PRIVATE_KEY;
+    this.projectId = config.projectId || process.env.ATLAS_PROJECT_ID;
+    this.clusterName = config.clusterName || process.env.ATLAS_CLUSTER_NAME;
+    this.clusterUrl = config.clusterUrl || process.env.ATLAS_CLUSTER_URL;
+    this.log = deps.logger || defaultLog;
+
+    // Allow injecting a mock HTTP client for testing
+    if (deps.httpClient) {
+      this.client = deps.httpClient;
+    } else if (this.publicKey && this.privateKey) {
+      this.client = new DigestClient(this.publicKey, this.privateKey);
+    } else {
+      this.client = null;
+    }
   }
 
   /**
@@ -137,9 +165,7 @@ class AtlasService {
    * @returns {string} - MongoDB connection URI
    */
   getConnectionString(username, password, databaseName) {
-    const clusterUrl = process.env.ATLAS_CLUSTER_URL;
-
-    if (!clusterUrl) {
+    if (!this.clusterUrl) {
       throw new Error('ATLAS_CLUSTER_URL not configured in environment');
     }
 
@@ -149,7 +175,7 @@ class AtlasService {
 
     // Build connection string with proper format
     // Format: mongodb+srv://username:password@cluster-url/database?retryWrites=true&w=majority
-    return `mongodb+srv://${encodedUsername}:${encodedPassword}@${clusterUrl}/${databaseName}?retryWrites=true&w=majority`;
+    return `mongodb+srv://${encodedUsername}:${encodedPassword}@${this.clusterUrl}/${databaseName}?retryWrites=true&w=majority`;
   }
 
   /**
@@ -205,7 +231,7 @@ class AtlasService {
       this.privateKey &&
       this.projectId &&
       this.clusterName &&
-      process.env.ATLAS_CLUSTER_URL
+      this.clusterUrl
     );
   }
 
@@ -227,4 +253,14 @@ class AtlasService {
   }
 }
 
-export default new AtlasService();
+// Export the class for testing with dependency injection
+export { AtlasService };
+
+// Factory function for creating instances with custom dependencies
+export function createAtlasService(deps = {}) {
+  return new AtlasService(deps);
+}
+
+// Default singleton instance for production use
+const atlasService = new AtlasService();
+export default atlasService;
