@@ -46,8 +46,16 @@ const APP_CONFIGS = {
   }
 };
 
+const DATABASES = {
+  'educationelly-db': 'Educationelly DB (MongoDB Atlas)',
+  'spaced-repetition-db': 'Spaced Repetition DB (MongoDB Atlas)',
+  'postgres-aws': 'PostgreSQL (AWS RDS)',
+  'postgres-neon': 'PostgreSQL (Neon DB)'
+};
+
 function DeploymentControls({ tenantName, onDeploymentCreated }) {
   const [appType, setAppType] = useState('educationelly-graphql');
+  const [databaseKey, setDatabaseKey] = useState('educationelly-db');
   const [replicas, setReplicas] = useState(1);
   const [serverImage, setServerImage] = useState(APP_CONFIGS['educationelly-graphql'].serverImage);
   const [clientImage, setClientImage] = useState(APP_CONFIGS['educationelly-graphql'].clientImage);
@@ -85,6 +93,7 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
 
       await deploymentApi.deployApp(tenantName, {
         appType,
+        databaseKey,
         replicas: parseInt(replicas),
         serverImage,
         clientImage,
@@ -116,6 +125,22 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
             {Object.entries(APP_CONFIGS).map(([key, config]) => (
               <option key={key} value={key}>
                 {config.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label>Select Database:</label>
+          <select 
+            value={databaseKey} 
+            onChange={(e) => setDatabaseKey(e.target.value)}
+            className="db-select"
+            style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', borderRadius: '6px', border: '2px solid #e5e7eb' }}
+          >
+            {Object.entries(DATABASES).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
               </option>
             ))}
           </select>

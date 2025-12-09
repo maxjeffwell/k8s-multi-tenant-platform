@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import pinoHttp from 'pino-http';
+import promBundle from 'express-prom-bundle';
 import logger, { httpLoggerConfig, createLogger } from './utils/logger.js';
 import tenantRoutes from './routes/tenantRoutes.js';
 import deploymentRoutes from './routes/deploymentRoutes.js';
@@ -13,6 +14,20 @@ import grafanaRoutes from './routes/grafanaRoutes.js';
 const log = createLogger('server');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Prometheus Middleware (must be before routes)
+const metricsMiddleware = promBundle({
+  includeMethod: true,
+  includePath: true,
+  includeStatusCode: true,
+  includeUp: true,
+  customLabels: { project_name: 'multi_tenant_platform' },
+  promClient: {
+    collectDefaultMetrics: {
+    }
+  }
+});
+app.use(metricsMiddleware);
 
 // Middleware
 app.use(cors());

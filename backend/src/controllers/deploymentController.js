@@ -19,9 +19,9 @@ class DeploymentController {
       // Validate tenant name parameter
       const { tenantName } = validateParams(tenantNameParamSchema, req.params);
       // Validate request body - validates replicas (1-10), images, env vars, appType
-      const { replicas, serverImage, clientImage, env, appType, serverPort: reqServerPort, clientPort: reqClientPort } = validateBody(deployAppSchema, req.body);
+      const { replicas, serverImage, clientImage, env, appType, serverPort: reqServerPort, clientPort: reqClientPort, databaseKey } = validateBody(deployAppSchema, req.body);
 
-      log.info({ tenantName, replicas, appType }, 'Deploying application to tenant');
+      log.info({ tenantName, replicas, appType, databaseKey }, 'Deploying application to tenant');
 
       // Generate ingress URLs that will be created
       const ingressHost = ingressService.generateIngressHost();
@@ -39,7 +39,8 @@ class DeploymentController {
         serverPort,
         clientPort,
         env: env || [],
-        graphqlEndpoint // Pass the public GraphQL endpoint URL
+        graphqlEndpoint, // Pass the public GraphQL endpoint URL
+        databaseKey
       };
 
       const result = await k8sService.deployEducationelly(tenantName, config);

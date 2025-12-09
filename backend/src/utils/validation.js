@@ -266,6 +266,7 @@ export const deployAppSchema = z.object({
   appType: appTypeSchema,
   serverPort: z.number().int().min(1).max(65535).optional(),
   clientPort: z.number().int().min(1).max(65535).optional(),
+  databaseKey: databaseKeySchema.optional(),
   env: envVarsArraySchema
 }).strict();
 

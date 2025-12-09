@@ -193,19 +193,96 @@ class PrometheusService {
   }
 
   /**
+   * Get HTTP request rate (RPS) for a specific tenant
+   * @param {string} namespace - Tenant namespace
+   * @param {string} timeRange - Time range (e.g., '5m')
+   * @returns {Promise<Object>} Request rate data
+   */
+  async getTenantRequestRate(namespace, timeRange = '5m') {
+    const query = `sum(rate(http_requests_total{namespace="${namespace}"}[${timeRange}]))`;
+    return await this.query(query);
+  }
+
+  /**
+   * Get HTTP error rate for a specific tenant
+   * @param {string} namespace - Tenant namespace
+   * @param {string} timeRange - Time range (e.g., '5m')
+   * @returns {Promise<Object>} Error rate data
+   */
+  async getTenantErrorRate(namespace, timeRange = '5m') {
+    const query = `sum(rate(http_requests_total{namespace="${namespace}", status=~"5.."}[${timeRange}]))`;
+    return await this.query(query);
+  }
+
+  /**
+   * Get P95 latency for a specific tenant
+   * @param {string} namespace - Tenant namespace
+   * @param {string} timeRange - Time range (e.g., '5m')
+   * @returns {Promise<Object>} P95 latency data
+   */
+  async getTenantLatency(namespace, timeRange = '5m') {
+    const query = `histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace="${namespace}"}[${timeRange}])) by (le))`;
+    return await this.query(query);
+  }
+
+  /**
+   * Get service availability (Running / Desired)
+   * @param {string} namespace - Tenant namespace
+   * @returns {Promise<Object>} Availability data
+   */
+  async getTenantAvailability(namespace) {
+    // Check if available < desired for any deployment in namespace
+    const query = `
+      kube_deployment_status_replicas_available{namespace="${namespace}"} 
+      / kube_deployment_spec_replicas{namespace="${namespace}"} * 100
+    `;
+    return await this.query(query);
+  }
+
+  /**
+   * Get PVC storage usage
+   * @param {string} namespace - Tenant namespace
+   * @returns {Promise<Object>} Storage usage data
+   */
+  async getTenantPVCUsage(namespace) {
+    const query = `
+      sum(kubelet_volume_stats_used_bytes{namespace="${namespace}"}) 
+      / sum(kubelet_volume_stats_capacity_bytes{namespace="${namespace}"}) * 100
+    `;
+    return await this.query(query);
+  }
+
+  /**
    * Get comprehensive tenant metrics overview
    * @param {string} namespace - Tenant namespace
    * @returns {Promise<Object>} Complete metrics data
    */
   async getTenantMetricsOverview(namespace) {
     try {
-      const [cpu, memory, podStatus, restarts, networkIO, quotaUsage] = await Promise.all([
+      const [
+        cpu, 
+        memory, 
+        podStatus, 
+        restarts, 
+        networkIO, 
+        quotaUsage,
+        requestRate,
+        errorRate,
+        latency,
+        availability,
+        pvcUsage
+      ] = await Promise.all([
         this.getTenantCPUUsage(namespace),
         this.getTenantMemoryUsage(namespace),
         this.getTenantPodStatus(namespace),
         this.getTenantPodRestarts(namespace),
         this.getTenantNetworkIO(namespace),
-        this.getTenantQuotaUsage(namespace)
+        this.getTenantQuotaUsage(namespace),
+        this.getTenantRequestRate(namespace).catch(() => ({ result: [] })),
+        this.getTenantErrorRate(namespace).catch(() => ({ result: [] })),
+        this.getTenantLatency(namespace).catch(() => ({ result: [] })),
+        this.getTenantAvailability(namespace).catch(() => ({ result: [] })),
+        this.getTenantPVCUsage(namespace).catch(() => ({ result: [] }))
       ]);
 
       return {
@@ -216,7 +293,16 @@ class PrometheusService {
         podStatus,
         restarts,
         networkIO,
-        quotaUsage
+        quotaUsage,
+        appPerformance: {
+          requestRate: parseFloat(requestRate.result[0]?.value[1] || 0),
+          errorRate: parseFloat(errorRate.result[0]?.value[1] || 0),
+          latency: parseFloat(latency.result[0]?.value[1] || 0)
+        },
+        reliability: {
+          availability: parseFloat(availability.result[0]?.value[1] || 100), // Default to 100 if metric missing (optimistic) or 0 if query works but returns 0
+          pvcUsage: parseFloat(pvcUsage.result[0]?.value[1] || 0)
+        }
       };
     } catch (error) {
       throw new Error(`Failed to get tenant metrics overview: ${error.message}`);

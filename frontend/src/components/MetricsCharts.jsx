@@ -311,6 +311,50 @@ function MetricsCharts({ tenantName }) {
       {/* Summary Cards */}
       <div className="metrics-summary">
         <div className="metric-card">
+          <h3>Health & Availability</h3>
+          <p className="metric-value">
+            {metrics.reliability?.availability !== undefined 
+              ? `${metrics.reliability.availability.toFixed(1)}%` 
+              : 'N/A'}
+          </p>
+          <p className="metric-subtitle">
+            {metrics.reliability?.availability < 100 ? '⚠️ Degradation Detected' : '✅ All Systems Operational'}
+          </p>
+        </div>
+
+        <div className="metric-card">
+          <h3>Request Rate</h3>
+          <p className="metric-value">
+            {metrics.appPerformance?.requestRate !== undefined
+              ? `${metrics.appPerformance.requestRate.toFixed(2)} rps`
+              : '0 rps'}
+          </p>
+          <p className="metric-subtitle">HTTP Requests per Second</p>
+        </div>
+
+        <div className="metric-card">
+          <h3>P95 Latency</h3>
+          <p className="metric-value">
+            {metrics.appPerformance?.latency !== undefined
+              ? `${(metrics.appPerformance.latency * 1000).toFixed(0)} ms`
+              : '0 ms'}
+          </p>
+          <p className="metric-subtitle">95th Percentile Duration</p>
+        </div>
+
+        <div className="metric-card">
+          <h3>Error Rate</h3>
+          <p className="metric-value" style={{ color: metrics.appPerformance?.errorRate > 0 ? '#ef4444' : 'inherit' }}>
+            {metrics.appPerformance?.errorRate !== undefined
+              ? `${metrics.appPerformance.errorRate.toFixed(2)} rps`
+              : '0 rps'}
+          </p>
+          <p className="metric-subtitle">HTTP 5xx Errors</p>
+        </div>
+      </div>
+
+      <div className="metrics-summary">
+        <div className="metric-card">
           <h3>CPU Usage</h3>
           <p className="metric-value">
             {metrics.quotaUsage?.cpu?.usage
@@ -336,6 +380,16 @@ function MetricsCharts({ tenantName }) {
               {metrics.quotaUsage.memory.percentage}% of quota
             </p>
           )}
+        </div>
+        
+        <div className="metric-card">
+           <h3>PVC Storage</h3>
+           <p className="metric-value">
+             {metrics.reliability?.pvcUsage !== undefined
+               ? `${metrics.reliability.pvcUsage.toFixed(1)}%`
+               : 'N/A'}
+           </p>
+           <p className="metric-subtitle">Disk Usage</p>
         </div>
 
         <div className="metric-card">
