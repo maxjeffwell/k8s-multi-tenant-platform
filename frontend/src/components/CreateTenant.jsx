@@ -9,10 +9,20 @@ const DATABASES = {
   'neon': 'Neon DB (PostgreSQL)'
 };
 
+const APP_TYPES = {
+  'educationelly': 'Educationelly',
+  'educationelly-graphql': 'Educationelly GraphQL',
+  'code-talk': 'Code Talk',
+  'bookmarked': 'Bookmarked',
+  'firebook': 'FireBook',
+  'intervalai': 'IntervalAI'
+};
+
 function CreateTenant({ onSuccess, onCancel }) {
   const [tenantName, setTenantName] = useState('');
   const [cpu, setCpu] = useState('2');
   const [memory, setMemory] = useState('4Gi');
+  const [appType, setAppType] = useState('educationelly-graphql');
   const [configureDatabase, setConfigureDatabase] = useState(false);
   const [databaseOption, setDatabaseOption] = useState('educationelly');
   const [customMongoUri, setCustomMongoUri] = useState('');
@@ -25,7 +35,15 @@ function CreateTenant({ onSuccess, onCancel }) {
     setError(null);
 
     try {
-      const tenantConfig = { cpu, memory };
+      // Structure the request body correctly for the backend
+      const requestBody = {
+        tenantName,
+        resourceQuota: {
+          cpu,
+          memory
+        },
+        appType
+      };
 
       // Add database configuration if enabled
       if (configureDatabase) {
@@ -35,14 +53,14 @@ function CreateTenant({ onSuccess, onCancel }) {
             setLoading(false);
             return;
           }
-          tenantConfig.database = { mongoUri: customMongoUri };
+          requestBody.database = { mongoUri: customMongoUri };
         } else {
           // Send the selected database key to the backend
-          tenantConfig.database = { databaseKey: databaseOption };
+          requestBody.database = { databaseKey: databaseOption };
         }
       }
 
-      await tenantApi.createTenant(tenantName, tenantConfig);
+      await tenantApi.createTenant(requestBody);
       onSuccess();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to create tenant');
@@ -68,6 +86,24 @@ function CreateTenant({ onSuccess, onCancel }) {
             required
           />
           <small>Lowercase alphanumeric with hyphens (e.g., demo-client-a)</small>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="appType">Application Type:</label>
+          <select
+            id="appType"
+            value={appType}
+            onChange={(e) => setAppType(e.target.value)}
+            className="form-select"
+            required
+          >
+            {Object.entries(APP_TYPES).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <small>Select the application type to deploy</small>
         </div>
 
         <div className="form-row">

@@ -12,8 +12,8 @@ const api = axios.create({
 // Tenant API
 export const tenantApi = {
   // Create a new tenant
-  createTenant: async (tenantName, resourceQuota) => {
-    const response = await api.post('/tenants', { tenantName, resourceQuota });
+  createTenant: async (tenantData) => {
+    const response = await api.post('/tenants', tenantData);
     return response.data;
   },
 

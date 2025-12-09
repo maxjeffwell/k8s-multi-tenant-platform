@@ -44,7 +44,9 @@ function Dashboard() {
     <div className="dashboard">
       <header className="dashboard-header">
         <h1>Multi-Tenant Hosting</h1>
-        <p>Manage isolated instances of educationELLy (GraphQL version) or educationELLy (REST version)</p>
+        <p>Manage isolated instances of educationELLy, edducationELLy-GraphQL, Code Talk,
+          FireBook, and IntervalAI
+        </p>
       </header>
 
       <div className="dashboard-content">
