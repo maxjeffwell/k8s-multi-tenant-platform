@@ -159,11 +159,11 @@ export const envVarsArraySchema = z.array(envVarSchema).max(50, 'Too many enviro
  * Application type validator
  */
 export const appTypeSchema = z
-  .enum(['graphql', 'rest'], {
-    errorMap: () => ({ message: 'App type must be "graphql" or "rest"' })
+  .enum(['educationelly', 'educationelly-graphql', 'code-talk', 'bookmarked', 'firebook', 'intervalai'], {
+    errorMap: () => ({ message: 'App type must be one of: educationelly, educationelly-graphql, code-talk, bookmarked, firebook, intervalai' })
   })
   .optional()
-  .default('graphql');
+  .default('educationelly-graphql');
 
 /**
  * MongoDB connection string validator
@@ -264,6 +264,8 @@ export const deployAppSchema = z.object({
   serverImage: dockerImageSchema,
   clientImage: dockerImageSchema,
   appType: appTypeSchema,
+  serverPort: z.number().int().min(1).max(65535).optional(),
+  clientPort: z.number().int().min(1).max(65535).optional(),
   env: envVarsArraySchema
 }).strict();
 

@@ -69,6 +69,12 @@ coverage/
 # Docker
 *.tar
 
+# Kubernetes secrets
+k8s/secrets/*.yaml
+k8s/secrets/*.yml
+*-secret.yaml
+*-secret.yml
+
 # Kubernetes
 kubeconfig
 *.kubeconfig

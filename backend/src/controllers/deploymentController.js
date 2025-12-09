@@ -19,7 +19,7 @@ class DeploymentController {
       // Validate tenant name parameter
       const { tenantName } = validateParams(tenantNameParamSchema, req.params);
       // Validate request body - validates replicas (1-10), images, env vars, appType
-      const { replicas, serverImage, clientImage, env, appType } = validateBody(deployAppSchema, req.body);
+      const { replicas, serverImage, clientImage, env, appType, serverPort: reqServerPort, clientPort: reqClientPort } = validateBody(deployAppSchema, req.body);
 
       log.info({ tenantName, replicas, appType }, 'Deploying application to tenant');
 
@@ -28,11 +28,16 @@ class DeploymentController {
       const serverIngressUrl = `http://${tenantName}-api.${ingressHost}`;
       const graphqlEndpoint = `${serverIngressUrl}/graphql`;
 
+      const serverPort = reqServerPort || 8000;
+      const clientPort = reqClientPort || 3000;
+
       const config = {
         replicas: replicas || 1,
-        appType: appType || 'graphql',
+        appType: appType || 'educationelly-graphql',
         serverImage,
         clientImage,
+        serverPort,
+        clientPort,
         env: env || [],
         graphqlEndpoint // Pass the public GraphQL endpoint URL
       };
@@ -44,11 +49,8 @@ class DeploymentController {
       let serverIngress = null;
 
       try {
-        // Determine service names based on app type
-        const isGraphQL = (appType || 'graphql') === 'graphql';
-        const appPrefix = isGraphQL ? 'educationelly-graphql' : 'educationelly';
-        const serverPort = isGraphQL ? 4000 : 8080;
-        const clientPort = 3000; // Same for both types
+        // App prefix is the appType
+        const appPrefix = appType || 'educationelly-graphql';
 
         // Create ingress for client (frontend)
         clientIngress = await ingressService.createClientIngress(

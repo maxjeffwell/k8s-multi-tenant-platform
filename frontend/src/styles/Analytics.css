@@ -35,6 +35,7 @@
   padding: 0.75rem 1.5rem;
   border: 2px solid #ddd;
   background: white;
+  color: #333;
   border-radius: 6px;
   font-size: 1rem;
   font-weight: 500;
@@ -402,6 +403,7 @@
   border: 2px solid #ddd;
   border-radius: 6px;
   background: white;
+  color: #333;
   cursor: pointer;
   transition: all 0.3s ease;
   min-width: 250px;

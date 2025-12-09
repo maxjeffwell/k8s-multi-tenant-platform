@@ -214,29 +214,30 @@ class K8sService {
     }
   }
 
-  // Deploy educationelly-graphql to a namespace
+  // Deploy generic application to a namespace
   async deployEducationelly(namespace, config = {}) {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
 
     const {
       replicas = 1,
-      appType = 'graphql', // 'graphql' or 'rest'
-      serverImage = null,
-      clientImage = null,
-      serverPort = null,
-      clientPort = null,
+      appType = 'educationelly-graphql',
+      serverImage,
+      clientImage,
+      serverPort,
+      clientPort,
       env = [],
       databaseSecretName = null,
       graphqlEndpoint = null // Public GraphQL endpoint URL
     } = config;
 
-    // Set defaults based on app type
-    const isGraphQL = appType === 'graphql';
-    const finalServerImage = serverImage || (isGraphQL ? 'maxjeffwell/educationelly-graphql-server:latest' : 'maxjeffwell/educationelly-server:latest');
-    const finalClientImage = clientImage || (isGraphQL ? 'maxjeffwell/educationelly-graphql-client:latest' : 'maxjeffwell/educationelly-client:latest');
-    const finalServerPort = serverPort || (isGraphQL ? 4000 : 8080);
-    const finalClientPort = clientPort || (isGraphQL ? 3000 : 3000);
-    const appPrefix = isGraphQL ? 'educationelly-graphql' : 'educationelly';
+    // Use appType as the prefix for resource names
+    const appPrefix = appType;
+    const finalServerPort = serverPort || 8000;
+    const finalClientPort = clientPort || 3000;
+
+    if (!serverImage || !clientImage) {
+      throw new Error('Server and Client images are required');
+    }
 
     try {
       // Check if database secret exists in namespace
@@ -247,7 +248,7 @@ class K8sService {
       const serverDeployment = await this.createDeployment(
         validatedNamespace,
         `${appPrefix}-server`,
-        finalServerImage,
+        serverImage,
         finalServerPort,
         replicas,
         env,
@@ -276,7 +277,7 @@ class K8sService {
       const clientDeployment = await this.createDeployment(
         validatedNamespace,
         `${appPrefix}-client`,
-        finalClientImage,
+        clientImage,
         finalClientPort,
         replicas,
         clientEnv,

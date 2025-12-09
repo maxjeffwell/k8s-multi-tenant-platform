@@ -1,31 +1,70 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { deploymentApi } from '../services/api';
 
+const APP_CONFIGS = {
+  'educationelly': {
+    label: 'educationELLy (REST)',
+    serverImage: 'maxjeffwell/educationelly-api:latest',
+    clientImage: 'maxjeffwell/educationelly-client:latest',
+    serverPort: 8080,
+    clientPort: 5000
+  },
+  'educationelly-graphql': {
+    label: 'educationELLy (GraphQL)',
+    serverImage: 'maxjeffwell/educationelly-graphql-api:latest',
+    clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
+    serverPort: 8000,
+    clientPort: 3000
+  },
+  'code-talk': {
+    label: 'Code Talk',
+    serverImage: 'maxjeffwell/code-talk-api:latest',
+    clientImage: 'maxjeffwell/code-talk-client:latest',
+    serverPort: 8000,
+    clientPort: 3000
+  },
+  'bookmarked': {
+    label: 'Bookmarked',
+    serverImage: 'maxjeffwell/bookmarked-api:latest',
+    clientImage: 'maxjeffwell/bookmarked-client:latest',
+    serverPort: 8000,
+    clientPort: 3000
+  },
+  'firebook': {
+    label: 'Firebook',
+    serverImage: 'maxjeffwell/firebook-api:latest',
+    clientImage: 'maxjeffwell/firebook-client:latest',
+    serverPort: 8000,
+    clientPort: 3000
+  },
+  'intervalai': {
+    label: 'IntervalAI',
+    serverImage: 'maxjeffwell/intervalai-api:latest',
+    clientImage: 'maxjeffwell/intervalai-client:latest',
+    serverPort: 8000,
+    clientPort: 3000
+  }
+};
+
 function DeploymentControls({ tenantName, onDeploymentCreated }) {
-  const [appType, setAppType] = useState('graphql');
+  const [appType, setAppType] = useState('educationelly-graphql');
   const [replicas, setReplicas] = useState(1);
-  const [serverImage, setServerImage] = useState('maxjeffwell/educationelly-graphql-api:latest');
-  const [clientImage, setClientImage] = useState('maxjeffwell/educationelly-graphql-client:latest');
-  const [serverPort, setServerPort] = useState(8000);
-  const [clientPort, setClientPort] = useState(3000);
+  const [serverImage, setServerImage] = useState(APP_CONFIGS['educationelly-graphql'].serverImage);
+  const [clientImage, setClientImage] = useState(APP_CONFIGS['educationelly-graphql'].clientImage);
+  const [serverPort, setServerPort] = useState(APP_CONFIGS['educationelly-graphql'].serverPort);
+  const [clientPort, setClientPort] = useState(APP_CONFIGS['educationelly-graphql'].clientPort);
   const [envVars, setEnvVars] = useState('');
   const [deploying, setDeploying] = useState(false);
   const [error, setError] = useState(null);
 
   const handleAppTypeChange = (type) => {
     setAppType(type);
-    if (type === 'graphql') {
-      setServerImage('maxjeffwell/educationelly-graphql-api:latest');
-      setClientImage('maxjeffwell/educationelly-graphql-client:latest');
-      setServerPort(8000);
-      setClientPort(3000);
-      setEnvVars('');
-    } else {
-      setServerImage('maxjeffwell/educationelly-api:latest');
-      setClientImage('maxjeffwell/educationelly-client:latest');
-      setServerPort(8080);
-      setClientPort(5000);
-      setEnvVars('');
+    const config = APP_CONFIGS[type];
+    if (config) {
+      setServerImage(config.serverImage);
+      setClientImage(config.clientImage);
+      setServerPort(config.serverPort);
+      setClientPort(config.clientPort);
     }
   };
 
@@ -64,30 +103,22 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
 
   return (
     <div className="deployment-controls">
-      <h4>Deploy educationELLy Application (Server + Client)</h4>
+      <h4>Deploy Application</h4>
       <form onSubmit={handleDeploy}>
         <div className="form-group">
-          <label>Application Type:</label>
-          <div className="radio-group">
-            <label className="radio-label">
-              <input
-                type="radio"
-                value="graphql"
-                checked={appType === 'graphql'}
-                onChange={(e) => handleAppTypeChange(e.target.value)}
-              />
-              GraphQL Version (Apollo Server + React)
-            </label>
-            <label className="radio-label">
-              <input
-                type="radio"
-                value="rest"
-                checked={appType === 'rest'}
-                onChange={(e) => handleAppTypeChange(e.target.value)}
-              />
-              REST API Version (Express + React)
-            </label>
-          </div>
+          <label>Select Application:</label>
+          <select 
+            value={appType} 
+            onChange={(e) => handleAppTypeChange(e.target.value)}
+            className="app-select"
+            style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', borderRadius: '6px', border: '2px solid #e5e7eb' }}
+          >
+            {Object.entries(APP_CONFIGS).map(([key, config]) => (
+              <option key={key} value={key}>
+                {config.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="form-group">
@@ -112,7 +143,7 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
               id="serverImage"
               value={serverImage}
               onChange={(e) => setServerImage(e.target.value)}
-              placeholder="maxjeffwell/educationelly-graphql-server:latest"
+              placeholder="image:tag"
               required
             />
           </div>
@@ -124,7 +155,7 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
               id="serverPort"
               value={serverPort}
               onChange={(e) => setServerPort(e.target.value)}
-              placeholder="4000"
+              placeholder="8000"
               required
             />
           </div>
@@ -138,7 +169,7 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
               id="clientImage"
               value={clientImage}
               onChange={(e) => setClientImage(e.target.value)}
-              placeholder="maxjeffwell/educationelly-graphql-client:latest"
+              placeholder="image:tag"
               required
             />
           </div>
@@ -165,7 +196,7 @@ function DeploymentControls({ tenantName, onDeploymentCreated }) {
             placeholder="NODE_ENV=production&#10;LOG_LEVEL=info"
             rows="4"
           />
-          <small>Format: KEY=value (one per line). API endpoint is auto-configured.</small>
+          <small>Format: KEY=value (one per line).</small>
         </div>
 
         {error && <div className="error-message">{error}</div>}
