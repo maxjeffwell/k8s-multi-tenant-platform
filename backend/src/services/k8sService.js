@@ -150,7 +150,8 @@ class K8sService {
       // Try to create namespace directly
       let namespace;
       try {
-        const response = await this.coreApi.createNamespace(namespaceManifest);
+        // createNamespace expects { body: manifest } not manifest directly
+        const response = await this.coreApi.createNamespace({ body: namespaceManifest });
         namespace = extractBody(response);
       } catch (error) {
         if (isAlreadyExistsError(error)) {
