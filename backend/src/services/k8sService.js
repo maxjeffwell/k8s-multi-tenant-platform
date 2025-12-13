@@ -136,21 +136,16 @@ class K8sService {
     const validatedName = validateResourceName(tenantName, 'namespace');
 
     try {
-      // Create properly typed Kubernetes objects
-      const metadata = new k8s.V1ObjectMeta();
-      metadata.name = validatedName;
-      metadata.labels = {
-        'app.kubernetes.io/managed-by': 'multi-tenant-platform',
-        'tenant': validatedName
+      // Create namespace manifest - use plain object (works like resourceQuota)
+      const namespaceManifest = {
+        metadata: {
+          name: validatedName,
+          labels: {
+            'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+            'tenant': validatedName
+          }
+        }
       };
-
-      const namespaceManifest = new k8s.V1Namespace();
-      namespaceManifest.apiVersion = 'v1';
-      namespaceManifest.kind = 'Namespace';
-      namespaceManifest.metadata = metadata;
-
-      // Debug: Log the manifest before sending
-      this.log.info({ namespaceManifest: JSON.stringify(namespaceManifest), validatedName }, 'About to create namespace');
 
       // Try to create namespace directly
       let namespace;
