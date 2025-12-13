@@ -4,7 +4,7 @@ Your Kubernetes cluster already has Grafana and Prometheus installed in the `mon
 
 ## Access Grafana
 
-**URL:** http://192.168.50.119:30300
+**URL:** https://grafana.el-jefe.me
 
 **Login Credentials:**
 - Username: `admin`
@@ -12,7 +12,7 @@ Your Kubernetes cluster already has Grafana and Prometheus installed in the `mon
 
 ## Quick Start
 
-1. Open Grafana in your browser: http://192.168.50.119:30300
+1. Open Grafana in your browser: https://grafana.el-jefe.me
 2. Log in with the credentials above
 3. Import the Multi-Tenant Platform dashboard (see below)
 
@@ -158,7 +158,7 @@ kubectl logs -n monitoring deployment/prometheus-grafana -f
 
 ### Check Prometheus targets
 
-1. Access Prometheus UI: http://192.168.50.119:30090
+1. Access Prometheus UI: https://prometheus.el-jefe.me
 2. Go to **Status** → **Targets**
 3. Verify all targets are **UP**
 

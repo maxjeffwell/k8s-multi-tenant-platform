@@ -39,7 +39,7 @@
           "showLineNumbers": false,
           "showMiniMap": false
         },
-        "content": "# Tenant Health Overview: ${namespace}\n\nThis dashboard provides a comprehensive view of the tenant\'s application health, resource usage, and performance.",
+        "content": "# Tenant Health Overview: ${namespace}\n\nThis dashboard provides a comprehensive view of the tenant's application health, resource usage, and performance.",
         "mode": "markdown"
       },
       "pluginVersion": "10.0.0",
