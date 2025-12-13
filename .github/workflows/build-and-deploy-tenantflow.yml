@@ -2,17 +2,14 @@ name: Build and Deploy TenantFlow
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
     paths:
       - 'backend/**'
       - 'frontend/**'
-      - 'k8s-deployment.yaml'
       - '.github/workflows/build-and-deploy-tenantflow.yml'
   workflow_dispatch:
 
 jobs:
-  permissions:
-    contents: write
   build-and-push:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
@@ -51,27 +48,3 @@ jobs:
             maxjeffwell/tenantflow-frontend:${{ github.sha }}
           cache-from: type=registry,ref=maxjeffwell/tenantflow-frontend:buildcache
           cache-to: type=registry,ref=maxjeffwell/tenantflow-frontend:buildcache,mode=max
-
-  update-manifests:
-    name: Update K8s Manifests
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update image tags in manifests
-        run: |
-          sed -i "s|image: tenantflow-backend:.*|image: maxjeffwell/tenantflow-backend:${{ github.sha }}|g" k8s-deployment.yaml
-          sed -i "s|image: tenantflow-frontend:.*|image: maxjeffwell/tenantflow-frontend:${{ github.sha }}|g" k8s-deployment.yaml
-
-      - name: Commit and push changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add k8s-deployment.yaml
-          git diff --staged --quiet || git commit -m "Update TenantFlow images to ${{ github.sha }}"
-          git push
