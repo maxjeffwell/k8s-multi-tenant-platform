@@ -8,7 +8,7 @@ Your Kubernetes cluster already has Grafana and Prometheus installed in the `mon
 
 **Login Credentials:**
 - Username: `admin`
-- Password: `hmUFxoqh4QlU1uyoXj4MBRwYNRuEswutCkr1Y6sc`
+- Password: `oucuvo7xsIQh6WJQ1T5gJvtAJZOKi6MtwRXG8fTR`
 
 ## Quick Start
 
