@@ -148,11 +148,19 @@ class K8sService {
         }
       };
 
-      const namespace = await createOrUpdate(
-        () => this.coreApi.createNamespace(namespaceManifest),
-        () => this.coreApi.readNamespace(validatedName),
-        'namespace'
-      );
+      // Try to create namespace directly
+      let namespace;
+      try {
+        const response = await this.coreApi.createNamespace(namespaceManifest);
+        namespace = extractBody(response);
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          const response = await this.coreApi.readNamespace(validatedName);
+          namespace = extractBody(response);
+        } else {
+          throw error;
+        }
+      }
 
       // Create resource quota if specified
       if (resourceQuota.cpu || resourceQuota.memory) {
