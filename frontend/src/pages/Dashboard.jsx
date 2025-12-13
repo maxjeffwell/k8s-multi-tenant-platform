@@ -14,7 +14,8 @@ function Dashboard() {
     try {
       setLoading(true);
       const data = await tenantApi.listTenants();
-      setTenants(data.tenants);
+      console.log('API Response:', data); // Debugging
+      setTenants(data?.tenants || []);
       setError(null);
     } catch (err) {
       setError('Failed to fetch tenants: ' + err.message);
