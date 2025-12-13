@@ -213,8 +213,8 @@ class K8sService {
 
     try {
       await createOrUpdate(
-        () => this.coreApi.createNamespacedResourceQuota(validatedNamespace, resourceQuota),
-        () => this.coreApi.replaceNamespacedResourceQuota(quotaName, validatedNamespace, resourceQuota),
+        () => this.coreApi.createNamespacedResourceQuota({ namespace: validatedNamespace, body: resourceQuota }),
+        () => this.coreApi.replaceNamespacedResourceQuota({ name: quotaName, namespace: validatedNamespace, body: resourceQuota }),
         'resource quota'
       );
     } catch (error) {

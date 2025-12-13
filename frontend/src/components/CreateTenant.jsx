@@ -79,9 +79,8 @@ function CreateTenant({ onSuccess, onCancel }) {
             type="text"
             id="tenantName"
             value={tenantName}
-            onChange={(e) => setTenantName(e.target.value)}
+            onChange={(e) => setTenantName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
             placeholder="demo-client-a"
-            pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?"
             title="Lowercase alphanumeric with hyphens only"
             required
           />
