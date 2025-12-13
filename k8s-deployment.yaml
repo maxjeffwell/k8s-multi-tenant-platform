@@ -67,7 +67,7 @@ spec:
       serviceAccountName: tenantflow-backend
       containers:
       - name: backend
-        image: maxjeffwell/tenantflow-backend:1.0.1
+        image: maxjeffwell/tenantflow-backend:1.0.2
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
