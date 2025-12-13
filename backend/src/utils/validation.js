@@ -243,6 +243,7 @@ export const createTenantSchema = z.object({
   resourceQuota: resourceQuotaSchema.optional(),
   appType: appTypeSchema,
   database: z.object({
+    databaseKey: databaseKeySchema.optional(),
     mongoUri: mongoConnectionStringSchema.optional(),
     username: databaseUsernameSchema.optional(),
     password: databasePasswordSchema.optional(),

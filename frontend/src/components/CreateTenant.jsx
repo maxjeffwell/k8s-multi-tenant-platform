@@ -81,7 +81,7 @@ function CreateTenant({ onSuccess, onCancel }) {
             value={tenantName}
             onChange={(e) => setTenantName(e.target.value)}
             placeholder="demo-client-a"
-            pattern="^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+            pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?"
             title="Lowercase alphanumeric with hyphens only"
             required
           />
