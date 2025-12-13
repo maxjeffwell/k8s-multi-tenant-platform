@@ -136,7 +136,7 @@ class K8sService {
     const validatedName = validateResourceName(tenantName, 'namespace');
 
     try {
-      // Create namespace manifest - use plain object (works like resourceQuota)
+      // Create namespace manifest - use plain object
       const namespaceManifest = {
         metadata: {
           name: validatedName,
@@ -150,12 +150,11 @@ class K8sService {
       // Try to create namespace directly
       let namespace;
       try {
-        // createNamespace expects { body: manifest } not manifest directly
         const response = await this.coreApi.createNamespace({ body: namespaceManifest });
         namespace = extractBody(response);
       } catch (error) {
         if (isAlreadyExistsError(error)) {
-          const response = await this.coreApi.readNamespace(validatedName);
+          const response = await this.coreApi.readNamespace({ name: validatedName });
           namespace = extractBody(response);
         } else {
           throw error;
@@ -298,7 +297,7 @@ class K8sService {
       if (databaseKey) {
         const credentials = await this.getSharedDatabaseCredentials(databaseKey);
         secretName = `${validatedNamespace}-db-secret`;
-        
+
         await this.createDatabaseSecret(
           validatedNamespace,
           secretName,
@@ -311,7 +310,7 @@ class K8sService {
          // Default fallback
          secretName = `${validatedNamespace}-mongodb-secret`;
       }
-      
+
       const secretExists = await this.getSecret(validatedNamespace, secretName);
 
       // Deploy Server with database secret if available
@@ -454,8 +453,8 @@ class K8sService {
 
     try {
       return await createOrUpdate(
-        () => this.appsApi.createNamespacedDeployment(validatedNamespace, deployment),
-        () => this.appsApi.replaceNamespacedDeployment(validatedAppName, validatedNamespace, deployment),
+        () => this.appsApi.createNamespacedDeployment({ namespace: validatedNamespace, body: deployment }),
+        () => this.appsApi.replaceNamespacedDeployment({ name: validatedAppName, namespace: validatedNamespace, body: deployment }),
         `deployment ${appName}`
       );
     } catch (error) {
@@ -496,8 +495,8 @@ class K8sService {
 
     try {
       await createOrUpdate(
-        () => this.coreApi.createNamespacedService(validatedNamespace, service),
-        () => this.coreApi.replaceNamespacedService(validatedAppName, validatedNamespace, service),
+        () => this.coreApi.createNamespacedService({ namespace: validatedNamespace, body: service }),
+        () => this.coreApi.replaceNamespacedService({ name: validatedAppName, namespace: validatedNamespace, body: service }),
         'service'
       );
     } catch (error) {
@@ -508,7 +507,7 @@ class K8sService {
   // List all tenant namespaces
   async listTenants() {
     try {
-      const response = await this.coreApi.listNamespace();
+      const response = await this.coreApi.listNamespace({});
       const allItems = extractBody(response)?.items || [];
 
       // Filter to only include namespaces managed by this platform
@@ -537,10 +536,10 @@ class K8sService {
 
     try {
       const [nsResponse, deploymentsResponse, servicesResponse, podsResponse] = await Promise.all([
-        this.coreApi.readNamespace(validatedNamespace),
-        this.appsApi.listNamespacedDeployment(validatedNamespace),
-        this.coreApi.listNamespacedService(validatedNamespace),
-        this.coreApi.listNamespacedPod(validatedNamespace)
+        this.coreApi.readNamespace({ name: validatedNamespace }),
+        this.appsApi.listNamespacedDeployment({ namespace: validatedNamespace }),
+        this.coreApi.listNamespacedService({ namespace: validatedNamespace }),
+        this.coreApi.listNamespacedPod({ namespace: validatedNamespace })
       ]);
 
       return {
@@ -559,11 +558,11 @@ class K8sService {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
 
     try {
-      const podsResponse = await this.coreApi.listNamespacedPod(validatedNamespace);
+      const podsResponse = await this.coreApi.listNamespacedPod({ namespace: validatedNamespace });
       const pods = extractBody(podsResponse);
 
       const quotaData = await executeK8sCall(
-        () => this.coreApi.readNamespacedResourceQuota(`${validatedNamespace}-quota`, validatedNamespace),
+        () => this.coreApi.readNamespacedResourceQuota({ name: `${validatedNamespace}-quota`, namespace: validatedNamespace }),
         'resource quota',
         { ignoreNotFound: true, operation: 'read' }
       );
@@ -588,7 +587,7 @@ class K8sService {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
 
     return await executeK8sCall(
-      () => this.coreApi.readNamespacedResourceQuota(`${validatedNamespace}-quota`, validatedNamespace),
+      () => this.coreApi.readNamespacedResourceQuota({ name: `${validatedNamespace}-quota`, namespace: validatedNamespace }),
       'resource quota',
       { ignoreNotFound: true, operation: 'read' }
     );
@@ -621,8 +620,8 @@ class K8sService {
 
     try {
       await updateOrCreate(
-        () => this.coreApi.replaceNamespacedResourceQuota(quotaName, validatedNamespace, resourceQuota),
-        () => this.coreApi.createNamespacedResourceQuota(validatedNamespace, resourceQuota),
+        () => this.coreApi.replaceNamespacedResourceQuota({ name: quotaName, namespace: validatedNamespace, body: resourceQuota }),
+        () => this.coreApi.createNamespacedResourceQuota({ namespace: validatedNamespace, body: resourceQuota }),
         'resource quota'
       );
       return resourceQuota.spec.hard;
@@ -636,7 +635,7 @@ class K8sService {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
 
     try {
-      await this.coreApi.deleteNamespace(validatedNamespace);
+      await this.coreApi.deleteNamespace({ name: validatedNamespace });
       return { message: `Namespace ${validatedNamespace} deletion initiated successfully` };
     } catch (error) {
       if (isNotFoundError(error)) {
@@ -659,16 +658,11 @@ class K8sService {
       };
 
       const options = { headers: { 'Content-Type': 'application/merge-patch+json' } };
-      await this.appsApi.patchNamespacedDeployment(
-        validatedDeployment,
-        validatedNamespace,
-        patch,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        options
-      );
+      await this.appsApi.patchNamespacedDeployment({
+        name: validatedDeployment,
+        namespace: validatedNamespace,
+        body: patch
+      }, options);
 
       return { message: `Deployment scaled to ${replicas} replicas` };
     } catch (error) {
@@ -696,17 +690,11 @@ class K8sService {
         }
       };
 
-      await this.appsApi.patchNamespacedDeployment(
-        validatedDeployment,
-        validatedNamespace,
-        patch,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        { headers: { 'Content-Type': 'application/merge-patch+json' } }
-      );
+      await this.appsApi.patchNamespacedDeployment({
+        name: validatedDeployment,
+        namespace: validatedNamespace,
+        body: patch
+      }, { headers: { 'Content-Type': 'application/merge-patch+json' } });
 
       return { message: `Deployment ${validatedDeployment} restarted` };
     } catch (error) {
@@ -724,7 +712,7 @@ class K8sService {
 
     // Determine database type
     const isPostgres = connectionString && (
-      connectionString.startsWith('postgres://') || 
+      connectionString.startsWith('postgres://') ||
       connectionString.startsWith('postgresql://')
     );
 
@@ -773,11 +761,11 @@ class K8sService {
 
     try {
       try {
-        await this.coreApi.createNamespacedSecret(validatedNamespace, secret);
+        await this.coreApi.createNamespacedSecret({ namespace: validatedNamespace, body: secret });
       } catch (error) {
         if (isAlreadyExistsError(error)) {
           // Update existing secret
-          await this.coreApi.replaceNamespacedSecret(validatedSecretName, validatedNamespace, secret);
+          await this.coreApi.replaceNamespacedSecret({ name: validatedSecretName, namespace: validatedNamespace, body: secret });
         } else {
           throw error;
         }
@@ -794,7 +782,7 @@ class K8sService {
     const validatedSecretName = validateResourceName(secretName, 'secret');
 
     return await executeK8sCall(
-      () => this.coreApi.readNamespacedSecret(validatedSecretName, validatedNamespace),
+      () => this.coreApi.readNamespacedSecret({ name: validatedSecretName, namespace: validatedNamespace }),
       'secret',
       { ignoreNotFound: true, operation: 'read' }
     );
@@ -806,7 +794,7 @@ class K8sService {
     const validatedSecretName = validateResourceName(secretName, 'secret');
 
     try {
-      await this.coreApi.deleteNamespacedSecret(validatedSecretName, validatedNamespace);
+      await this.coreApi.deleteNamespacedSecret({ name: validatedSecretName, namespace: validatedNamespace });
       return { message: `Secret ${validatedSecretName} deleted successfully` };
     } catch (error) {
       if (isNotFoundError(error)) {
@@ -824,7 +812,7 @@ class K8sService {
 
     try {
       // Get current deployment
-      const response = await this.appsApi.readNamespacedDeployment(validatedDeployment, validatedNamespace);
+      const response = await this.appsApi.readNamespacedDeployment({ name: validatedDeployment, namespace: validatedNamespace });
       const deployment = extractBody(response);
 
       // Update container env to use secretRef
@@ -838,11 +826,11 @@ class K8sService {
         ];
 
         // Apply updated deployment
-        await this.appsApi.replaceNamespacedDeployment(
-          validatedDeployment,
-          validatedNamespace,
-          deployment
-        );
+        await this.appsApi.replaceNamespacedDeployment({
+          name: validatedDeployment,
+          namespace: validatedNamespace,
+          body: deployment
+        });
 
         return { message: `Deployment ${validatedDeployment} updated to use secret ${validatedSecretName}` };
       }
@@ -859,26 +847,18 @@ class K8sService {
 
     try {
       // Get pods in the namespace that match either GraphQL or REST server deployment
-      let podsResponse = await this.coreApi.listNamespacedPod(
-        validatedNamespace,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        'app=educationelly-graphql-server'
-      );
+      let podsResponse = await this.coreApi.listNamespacedPod({
+        namespace: validatedNamespace,
+        labelSelector: 'app=educationelly-graphql-server'
+      });
       let pods = extractBody(podsResponse);
 
       // If no GraphQL server pods found, try REST API server
       if (!pods?.items || pods.items.length === 0) {
-        podsResponse = await this.coreApi.listNamespacedPod(
-          validatedNamespace,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          'app=educationelly-server'
-        );
+        podsResponse = await this.coreApi.listNamespacedPod({
+          namespace: validatedNamespace,
+          labelSelector: 'app=educationelly-server'
+        });
         pods = extractBody(podsResponse);
       }
 
@@ -907,19 +887,11 @@ class K8sService {
 
       try {
         // Get recent logs (last 100 lines) from the pod
-        const logsResponse = await this.coreApi.readNamespacedPodLog(
-          podName,
-          validatedNamespace,
-          undefined, // container
-          undefined, // follow
-          undefined, // insecureSkipTLSVerifyBackend
-          undefined, // limitBytes
-          undefined, // pretty
-          undefined, // previous
-          undefined, // sinceSeconds
-          100,       // tailLines
-          undefined  // timestamps
-        );
+        const logsResponse = await this.coreApi.readNamespacedPodLog({
+          name: podName,
+          namespace: validatedNamespace,
+          tailLines: 100
+        });
 
         const logs = logsResponse?.body || logsResponse || '';
 
