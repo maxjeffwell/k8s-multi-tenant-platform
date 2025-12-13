@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: maxjeffwell/k8s-platform-frontend:latest
+        image: maxjeffwell/tenantflow-frontend:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
