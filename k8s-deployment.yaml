@@ -110,6 +110,8 @@ spec:
         # Test Database
         - name: PROMETHEUS_URL
           value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+        - name: GRAFANA_URL
+          value: "http://prometheus-grafana.monitoring.svc.cluster.local"
         - name: TEST_DB_CONNECTION_STRING
           valueFrom:
             secretKeyRef:
