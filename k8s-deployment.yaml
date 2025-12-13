@@ -254,7 +254,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: maxjeffwell/tenantflow-frontend:1.0.9
+        image: maxjeffwell/tenantflow-frontend:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -287,7 +287,7 @@ spec:
 
       initContainers:
       - name: patch-config
-        image: maxjeffwell/tenantflow-frontend:1.0.9
+        image: maxjeffwell/tenantflow-frontend:latest
         command: ["/bin/sh", "-c"]
         args:
           - |

@@ -33,6 +33,7 @@ ChartJS.register(
 
 function Analytics() {
   const grafanaUrl = import.meta.env.VITE_GRAFANA_URL || 'http://192.168.50.119:30300';
+  const prometheusUrl = import.meta.env.VITE_PROMETHEUS_URL || 'http://192.168.50.119:30090';
   const [selectedView, setSelectedView] = useState('platform');
   const [selectedTenant, setSelectedTenant] = useState(null);
   const [tenants, setTenants] = useState([]);
@@ -41,7 +42,7 @@ function Analytics() {
 
   // Dashboard URLs
   const dashboardUrl = `${grafanaUrl}/d/multi-tenant-overview/multi-tenant-platform-overview?orgId=1&refresh=30s&kiosk=tv`;
-  const exploreUrl = `${grafanaUrl}/explore?orgId=1&left=%7B%22datasource%22:%22prometheus%22,%22queries%22:%5B%7B%22expr%22:%22%22%7D%5D%7D`;
+  const exploreUrl = prometheusUrl;
 
   const fetchData = useCallback(async () => {
     try {
