@@ -29,6 +29,16 @@ const metricsMiddleware = promBundle({
 });
 app.use(metricsMiddleware);
 
+// Explicitly expose metrics endpoint
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', metricsMiddleware.promClient.register.contentType);
+    res.end(await metricsMiddleware.promClient.register.metrics());
+  } catch (ex) {
+    res.status(500).end(ex.message);
+  }
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
