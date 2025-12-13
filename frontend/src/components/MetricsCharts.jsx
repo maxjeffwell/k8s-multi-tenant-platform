@@ -57,6 +57,7 @@ function MetricsCharts({ tenantName }) {
   }, [tenantName]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: fetch data on mount
     fetchMetrics();
 
     // Auto-refresh every 30 seconds

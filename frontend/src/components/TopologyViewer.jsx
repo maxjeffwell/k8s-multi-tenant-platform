@@ -122,6 +122,7 @@ function TopologyViewer() {
   }, [topologyData, selectedNode]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Intentional: fetch data on mount
     fetchTopologyData();
     const interval = setInterval(fetchTopologyData, 30000); // Refresh every 30s
     return () => clearInterval(interval);
