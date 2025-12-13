@@ -152,11 +152,11 @@ class IngressService {
 
     try {
       try {
-        await this.networkingApi.createNamespacedIngress(validatedTenant, ingress);
+        await this.networkingApi.createNamespacedIngress({ namespace: validatedTenant, body: ingress });
       } catch (error) {
         if (isAlreadyExistsError(error)) {
           // Update existing ingress
-          await this.networkingApi.replaceNamespacedIngress(ingressName, validatedTenant, ingress);
+          await this.networkingApi.replaceNamespacedIngress({ name: ingressName, namespace: validatedTenant, body: ingress });
         } else {
           throw error;
         }
@@ -230,11 +230,11 @@ class IngressService {
 
     try {
       try {
-        await this.networkingApi.createNamespacedIngress(validatedTenant, ingress);
+        await this.networkingApi.createNamespacedIngress({ namespace: validatedTenant, body: ingress });
       } catch (error) {
         if (isAlreadyExistsError(error)) {
           // Update existing ingress
-          await this.networkingApi.replaceNamespacedIngress(ingressName, validatedTenant, ingress);
+          await this.networkingApi.replaceNamespacedIngress({ name: ingressName, namespace: validatedTenant, body: ingress });
         } else {
           throw error;
         }
@@ -262,7 +262,7 @@ class IngressService {
     const validatedTenant = validateResourceName(tenantName, 'namespace');
 
     try {
-      const response = await this.networkingApi.listNamespacedIngress(validatedTenant);
+      const response = await this.networkingApi.listNamespacedIngress({ namespace: validatedTenant });
       const result = extractBody(response);
 
       if (!result?.items || result.items.length === 0) {
@@ -295,7 +295,7 @@ class IngressService {
 
     try {
       // Get all ingresses in the namespace
-      const response = await this.networkingApi.listNamespacedIngress(validatedTenant);
+      const response = await this.networkingApi.listNamespacedIngress({ namespace: validatedTenant });
       const ingresses = extractBody(response)?.items || [];
 
       if (ingresses.length === 0) {
@@ -304,7 +304,7 @@ class IngressService {
 
       // Delete each ingress
       const deletePromises = ingresses.map(ingress =>
-        this.networkingApi.deleteNamespacedIngress(ingress.metadata.name, validatedTenant)
+        this.networkingApi.deleteNamespacedIngress({ name: ingress.metadata.name, namespace: validatedTenant })
       );
 
       await Promise.all(deletePromises);
@@ -332,7 +332,7 @@ class IngressService {
     const validatedIngress = validateResourceName(ingressName, 'ingress');
 
     try {
-      const response = await this.networkingApi.readNamespacedIngress(validatedIngress, validatedTenant);
+      const response = await this.networkingApi.readNamespacedIngress({ name: validatedIngress, namespace: validatedTenant });
       const ingress = extractBody(response);
 
       const hasIP = ingress.status?.loadBalancer?.ingress?.[0]?.ip !== undefined;
@@ -357,7 +357,7 @@ class IngressService {
   async isIngressControllerAvailable() {
     try {
       // List ingress classes to check if the specified class exists
-      const response = await this.networkingApi.listIngressClass();
+      const response = await this.networkingApi.listIngressClass({});
       const classes = extractBody(response)?.items || [];
 
       return classes.some(ic => ic.metadata.name === this.ingressClass);
