@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { deploymentApi } from '../services/api';
 
 const APP_CONFIGS = {

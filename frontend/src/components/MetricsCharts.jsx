@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -38,7 +38,7 @@ function MetricsCharts({ tenantName }) {
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   // Fetch metrics data
-  const fetchMetrics = async () => {
+  const fetchMetrics = useCallback(async () => {
     try {
       setError(null);
       const [metricsData, timeSeriesData] = await Promise.all([
@@ -54,7 +54,7 @@ function MetricsCharts({ tenantName }) {
       setError('Failed to load metrics. Please try again.');
       setLoading(false);
     }
-  };
+  }, [tenantName]);
 
   useEffect(() => {
     fetchMetrics();
@@ -68,7 +68,7 @@ function MetricsCharts({ tenantName }) {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [tenantName, autoRefresh]);
+  }, [fetchMetrics, autoRefresh]);
 
   if (loading) {
     return (

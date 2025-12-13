@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import '../styles/TopologyViewer.css';
 
@@ -11,19 +11,7 @@ function TopologyViewer() {
   const [selectedNode, setSelectedNode] = useState(null);
   const canvasRef = useRef(null);
 
-  useEffect(() => {
-    fetchTopologyData();
-    const interval = setInterval(fetchTopologyData, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (topologyData && canvasRef.current) {
-      drawTopology();
-    }
-  }, [topologyData, selectedNode]);
-
-  const fetchTopologyData = async () => {
+  const fetchTopologyData = useCallback(async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/grafana/topology/data`);
       setTopologyData(response.data);
@@ -32,9 +20,9 @@ function TopologyViewer() {
       setError(err.message);
       setLoading(false);
     }
-  };
+  }, []);
 
-  const drawTopology = () => {
+  const drawTopology = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -131,7 +119,19 @@ function TopologyViewer() {
 
     // Store positions for click detection
     canvas.nodePositions = nodePositions;
-  };
+  }, [topologyData, selectedNode]);
+
+  useEffect(() => {
+    fetchTopologyData();
+    const interval = setInterval(fetchTopologyData, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, [fetchTopologyData]);
+
+  useEffect(() => {
+    if (topologyData && canvasRef.current) {
+      drawTopology();
+    }
+  }, [topologyData, drawTopology]);
 
   const handleCanvasClick = (event) => {
     if (!canvasRef.current || !topologyData) return;

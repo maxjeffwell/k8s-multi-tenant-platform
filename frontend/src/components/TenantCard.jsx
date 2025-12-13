@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { tenantApi, deploymentApi, databaseApi } from '../services/api';
+import { useState, useEffect, useCallback } from 'react';
+import { tenantApi, databaseApi } from '../services/api';
 import DeploymentControls from './DeploymentControls';
 
 function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
@@ -15,13 +15,7 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
   const [editingQuota, setEditingQuota] = useState(false);
   const [quotaForm, setQuotaForm] = useState({ cpu: '', memory: '' });
 
-  useEffect(() => {
-    if (isExpanded && !details) {
-      fetchTenantDetails();
-    }
-  }, [isExpanded]);
-
-  const fetchTenantDetails = async () => {
+  const fetchTenantDetails = useCallback(async () => {
     setLoading(true);
     try {
       const [detailsData, metricsData] = await Promise.all([
@@ -35,7 +29,13 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenant.name]);
+
+  useEffect(() => {
+    if (isExpanded && !details) {
+      fetchTenantDetails();
+    }
+  }, [isExpanded, details, fetchTenantDetails]);
 
   const handleDelete = async () => {
     if (!confirm(`Are you sure you want to delete tenant "${tenant.name}"? This will remove all resources.`)) {

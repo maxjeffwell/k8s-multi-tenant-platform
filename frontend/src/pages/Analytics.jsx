@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -37,19 +37,13 @@ function Analytics() {
   const [selectedTenant, setSelectedTenant] = useState(null);
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [platformMetrics, setPlatformMetrics] = useState(null);
+  const [, setPlatformMetrics] = useState(null);
 
   // Dashboard URLs
   const dashboardUrl = `${grafanaUrl}/d/multi-tenant-overview/multi-tenant-platform-overview?orgId=1&refresh=30s&kiosk=tv`;
   const exploreUrl = `${grafanaUrl}/explore?orgId=1&left=%7B%22datasource%22:%22prometheus%22,%22queries%22:%5B%7B%22expr%22:%22%22%7D%5D%7D`;
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       // Fetch tenant list and platform metrics in parallel
       const [tenantsResponse, platformMetricsResponse] = await Promise.all([
@@ -63,7 +57,7 @@ function Analytics() {
           try {
             const metrics = await tenantApi.getTenantMetrics(tenant.name);
             return { ...tenant, metrics: metrics };
-          } catch (err) {
+          } catch {
             return { ...tenant, metrics: null };
           }
         })
@@ -83,7 +77,13 @@ function Analytics() {
       console.error('Failed to fetch data:', error);
       setLoading(false);
     }
-  };
+  }, [selectedTenant]);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, [fetchData]);
 
   // Prepare data for Resource Usage Chart (CPU & Memory)
   const resourceData = {
@@ -116,7 +116,7 @@ function Analytics() {
       if (tenant.metrics?.podsList) {
         tenant.metrics.podsList.forEach(pod => {
           const status = pod.status.toLowerCase();
-          if (statusCounts.hasOwnProperty(status)) {
+          if (Object.hasOwn(statusCounts, status)) {
             statusCounts[status]++;
           }
         });
