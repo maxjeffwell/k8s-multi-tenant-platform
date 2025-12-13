@@ -78,4 +78,3 @@ k8s/secrets/*.yml
 # Kubernetes
 kubeconfig
 *.kubeconfig
-backend/src/config/databases.js

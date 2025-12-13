@@ -79,7 +79,7 @@ app.use((req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   log.info({
     port: PORT,
     nodeEnv: process.env.NODE_ENV || 'development',
