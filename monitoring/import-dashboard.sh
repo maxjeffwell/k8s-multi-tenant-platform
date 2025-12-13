@@ -2,9 +2,9 @@
 
 # Script to import the Multi-Tenant Platform dashboard into Grafana
 
-GRAFANA_URL="http://192.168.50.119:30300"
+GRAFANA_URL="https://grafana.el-jefe.me"
 GRAFANA_USER="admin"
-GRAFANA_PASSWORD="hmUFxoqh4QlU1uyoXj4MBRwYNRuEswutCkr1Y6sc"
+GRAFANA_PASSWORD="oucuvo7xsIQh6WJQ1T5gJvtAJZOKi6MtwRXG8fTR"
 DASHBOARD_FILE="dashboards/multi-tenant-overview.json"
 
 echo "Importing Multi-Tenant Platform dashboard to Grafana..."

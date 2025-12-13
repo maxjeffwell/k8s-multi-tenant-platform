@@ -1,7 +1,12 @@
 {
   "dashboard": {
+    "uid": "multi-tenant-overview",
     "title": "Multi-Tenant Platform Overview",
-    "tags": ["kubernetes", "multi-tenant", "educationelly"],
+    "tags": [
+      "kubernetes",
+      "multi-tenant",
+      "educationelly"
+    ],
     "timezone": "browser",
     "schemaVersion": 16,
     "version": 0,
