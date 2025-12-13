@@ -149,6 +149,9 @@ class K8sService {
       namespaceManifest.kind = 'Namespace';
       namespaceManifest.metadata = metadata;
 
+      // Debug: Log the manifest before sending
+      this.log.info({ namespaceManifest: JSON.stringify(namespaceManifest), validatedName }, 'About to create namespace');
+
       // Try to create namespace directly
       let namespace;
       try {
