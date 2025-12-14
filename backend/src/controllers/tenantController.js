@@ -171,7 +171,12 @@ class TenantController {
             clientImage: appConfig.clientImage,
             serverPort: appConfig.serverPort,
             clientPort: appConfig.clientPort,
-            env: [],
+            env: [
+              {
+                name: 'secret', // Required by Educationelly backend
+                value: Math.random().toString(36).substring(2, 15) // Simple random secret
+              }
+            ],
             graphqlEndpoint, // might be null
             databaseKey
           };
