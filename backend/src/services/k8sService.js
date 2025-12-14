@@ -231,7 +231,8 @@ class K8sService {
   async getSharedDatabaseCredentials(databaseKey) {
     try {
       // Read the master secret from default namespace
-      const secret = await this.getSecret('default', 'tenantflow-db-credentials');
+      // Using 'production-db-credentials' to avoid conflict with ArgoCD managed 'tenantflow-db-credentials'
+      const secret = await this.getSecret('default', 'production-db-credentials');
       if (!secret || !secret.data) {
         throw new Error('Shared database credentials secret not found');
       }
