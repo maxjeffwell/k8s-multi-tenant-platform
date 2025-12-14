@@ -66,7 +66,87 @@ class TenantController {
       const { tenantName, resourceQuota, database, appType } = validatedData;
       let response = { tenant: tenantName };
 
-      // ... (rest of logic same until deployment)
+      log.info({ tenantName, hasQuota: !!resourceQuota, hasDatabase: !!database, appType }, 'Creating tenant');
+
+      // Create namespace
+      const namespace = await k8sService.createNamespace(tenantName, resourceQuota, appType);
+
+      // Upgrade tenant string to full object
+      response.tenant = {
+        name: namespace.metadata.name,
+        createdAt: namespace.metadata.creationTimestamp
+      };
+      response.message = 'Tenant created successfully';
+
+      // Determine the correct database key
+      let databaseKey = null;
+
+      // If appType dictates a specific DB, force it
+      if (appType && DEFAULT_APP_CONFIGS[appType]?.dbKey) {
+        databaseKey = DEFAULT_APP_CONFIGS[appType].dbKey;
+      }
+      // Otherwise fallback to request body
+      else if (database && database.databaseKey) {
+        databaseKey = database.databaseKey;
+      }
+
+      // Configure database if we have a key or custom URI
+      if (databaseKey) {
+        response.database = {
+          configured: true,
+          type: 'shared',
+          key: databaseKey
+        };
+      } else if (database && database.mongoUri) {
+        try {
+          const secretName = `${tenantName}-mongodb-secret`;
+
+          // Extract credentials from URI if not provided
+          let username = database.username || '';
+          let password = database.password || '';
+          let databaseName = database.databaseName || '';
+
+          // Try to parse from URI if not provided
+          if (!username && database.mongoUri.includes('@')) {
+            const match = database.mongoUri.match(/mongodb\+srv:\/\/([^:]+):([^@]+)@/);
+            if (match) {
+              username = match[1];
+              password = match[2];
+            }
+            // Extract database name from URI
+            const dbMatch = database.mongoUri.match(/\.net\/([^?]+)/);
+            if (dbMatch) {
+              databaseName = dbMatch[1];
+            }
+          }
+
+          await k8sService.createDatabaseSecret(
+            tenantName,
+            secretName,
+            database.mongoUri,
+            username,
+            password,
+            databaseName
+          );
+
+          response.database = {
+            configured: true,
+            name: databaseName,
+            username: username,
+            secretName: secretName
+          };
+          response.message = 'Tenant and database configured successfully';
+
+          log.info({ tenantName, databaseName, secretName }, 'Database configured for tenant');
+        } catch (dbError) {
+          log.error({ err: dbError, tenantName }, 'Database configuration failed');
+          response.database = {
+            configured: false,
+            error: 'Database configuration failed.',
+            details: dbError.message
+          };
+        }
+      }
 
       // Deploy Application if appType is provided and we have default config
       if (appType && DEFAULT_APP_CONFIGS[appType]) {
