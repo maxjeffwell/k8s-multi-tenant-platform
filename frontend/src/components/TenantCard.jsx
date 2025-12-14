@@ -2,16 +2,21 @@ import { useState, useEffect, useCallback } from 'react';
 import { tenantApi, databaseApi } from '../services/api';
 import DeploymentControls from './DeploymentControls';
 
+const APP_DB_MAPPING = {
+  'educationelly': 'educationelly-db',
+  'educationelly-graphql': 'educationelly-db',
+  'code-talk': 'postgres-aws',
+  'bookmarked': 'postgres-neon',
+  'firebook': 'educationelly-db', // Or firebase logic
+  'intervalai': 'spaced-repetition-db'
+};
+
 function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
   const [details, setDetails] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [enablingDatabase, setEnablingDatabase] = useState(false);
-  const [showDatabaseDialog, setShowDatabaseDialog] = useState(false);
-  const [selectedDatabase, setSelectedDatabase] = useState('test');
-  const [availableDatabases, setAvailableDatabases] = useState([]);
-  const [loadingDatabases, setLoadingDatabases] = useState(false);
   const [editingQuota, setEditingQuota] = useState(false);
   const [quotaForm, setQuotaForm] = useState({ cpu: '', memory: '' });
 
@@ -55,34 +60,27 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
   };
 
   const handleEnableDatabase = async () => {
-    if (!hasDeployments) {
-      alert('Please deploy an application first before enabling the database.');
+    const appType = tenant.appType || details?.tenant?.appType;
+    
+    if (!appType) {
+      alert('Cannot enable database: App type is unknown for this tenant.');
       return;
     }
 
-    // Fetch available databases from backend
-    setLoadingDatabases(true);
-    try {
-      const response = await databaseApi.getAvailableDatabases();
-      setAvailableDatabases(response.databases || []);
-      if (response.databases && response.databases.length > 0) {
-        setSelectedDatabase(response.databases[0].key);
-      }
-      setShowDatabaseDialog(true);
-    } catch (err) {
-      alert('Failed to load database options: ' + err.message);
-    } finally {
-      setLoadingDatabases(false);
+    const dbKey = APP_DB_MAPPING[appType];
+    if (!dbKey) {
+      alert(`No database mapping found for app type: ${appType}`);
+      return;
     }
-  };
 
-  const confirmEnableDatabase = async () => {
-    setShowDatabaseDialog(false);
+    if (!confirm(`Enable ${dbKey} for ${tenant.name}?`)) {
+      return;
+    }
+
     setEnablingDatabase(true);
-
     try {
       // Send only the database key to the backend
-      await databaseApi.enableDatabaseWithKey(tenant.name, selectedDatabase);
+      await databaseApi.enableDatabaseWithKey(tenant.name, dbKey);
       alert('Database enabled successfully! Pods are restarting...');
       await fetchTenantDetails();
     } catch (err) {
@@ -382,44 +380,6 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
               </div>
             </>
           )}
-        </div>
-      )}
-
-      {showDatabaseDialog && (
-        <div className="modal-overlay" onClick={() => setShowDatabaseDialog(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3>Select Database</h3>
-            <p>Choose which database this tenant should connect to:</p>
-            {loadingDatabases ? (
-              <div style={{ textAlign: 'center', padding: '2rem' }}>Loading databases...</div>
-            ) : (
-              <div className="database-options">
-                {availableDatabases.map((db) => (
-                  <label key={db.key} className="database-option">
-                    <input
-                      type="radio"
-                      name="database"
-                      value={db.key}
-                      checked={selectedDatabase === db.key}
-                      onChange={(e) => setSelectedDatabase(e.target.value)}
-                    />
-                    <div>
-                      <strong>{db.displayName}</strong>
-                      <span className="database-description">{db.description}</span>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            )}
-            <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setShowDatabaseDialog(false)}>
-                Cancel
-              </button>
-              <button className="btn-primary" onClick={confirmEnableDatabase}>
-                Enable Database
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>
