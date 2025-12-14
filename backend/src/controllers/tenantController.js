@@ -189,6 +189,32 @@ class TenantController {
             databaseKey
           };
 
+          // SPECIAL CONFIG FOR CODE-TALK (Needs Postgres + Redis)
+          if (appType === 'code-talk') {
+            deployConfig.env.push(
+              {
+                name: 'DATABASE_URL',
+                value: 'postgres://ue2p717tmbg7uj:p5181fcc48b09e9c27b27fe64c388e33f675c42effa900b05979b61857159925d@c5cnr847jq0fj3.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/de3iq68tg4peu'
+              },
+              {
+                name: 'REDIS_URL',
+                value: 'rediss://:p40e3d46b6655a2eada48df7a524df3ed36f490323a854685737416bbed6a99d6@ec2-35-175-134-146.compute-1.amazonaws.com:6380'
+              },
+              {
+                name: 'REDIS_HOST',
+                value: 'ec2-35-175-134-146.compute-1.amazonaws.com'
+              },
+              {
+                name: 'REDIS_PORT',
+                value: '6380'
+              },
+              {
+                name: 'REDIS_PASSWORD',
+                value: 'p40e3d46b6655a2eada48df7a524df3ed36f490323a854685737416bbed6a99d6'
+              }
+            );
+          }
+
           const deployResult = await k8sService.deployEducationelly(tenantName, deployConfig);
 
           // Create ingress resources
