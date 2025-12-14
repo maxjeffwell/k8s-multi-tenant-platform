@@ -172,6 +172,22 @@ class K8sService {
         await this.createResourceQuota(validatedName, resourceQuota);
       }
 
+      // WAIT for namespace to be Active (fix for race condition)
+      let retries = 0;
+      while (retries < 10) {
+        try {
+          const nsStatus = await this.coreApi.readNamespace({ name: validatedName });
+          const statusPhase = extractBody(nsStatus).status.phase;
+          if (statusPhase === 'Active') {
+            break;
+          }
+        } catch (e) {
+          // ignore error, wait and retry
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        retries++;
+      }
+
       return namespace;
     } catch (error) {
       throw new Error(`Failed to create namespace: ${error.message}`);
