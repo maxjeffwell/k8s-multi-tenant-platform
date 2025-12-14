@@ -18,7 +18,7 @@ const databases = {
     displayName: 'Educationelly DB',
     description: 'Production database'
   },
-  'spaced-repetition': {
+  'spaced-repetition-db': {
     connectionString: process.env.SPACED_REPETITION_CONNECTION_STRING,
     username: process.env.SPACED_REPETITION_USERNAME,
     password: process.env.SPACED_REPETITION_PASSWORD,
@@ -33,6 +33,22 @@ const databases = {
     databaseName: 'postgres',
     displayName: 'PostgreSQL AWS RDS',
     description: 'PostgreSQL production database on AWS'
+  },
+  'postgres-neon': {
+    connectionString: process.env.NEONDB_CONNECTION_STRING,
+    username: process.env.NEONDB_USERNAME,
+    password: process.env.NEONDB_PASSWORD,
+    databaseName: 'neondb',
+    displayName: 'PostgreSQL Neon DB',
+    description: 'Serverless PostgreSQL with branching'
+  },
+  'firebook-db': {
+    connectionString: 'firebase://configured-via-env-vars',
+    username: 'firebase',
+    password: 'via-env-vars',
+    databaseName: 'firebook',
+    displayName: 'FireBook DB',
+    description: 'Firebase Realtime Database'
   }
 };
 

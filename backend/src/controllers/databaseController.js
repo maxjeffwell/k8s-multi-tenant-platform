@@ -99,17 +99,18 @@ class DatabaseController {
         dbName
       );
 
-      // Restart pods to pick up the new secret (best effort - continue if fails)
-      try {
-        await k8sService.restartDeployment(tenantName, 'educationelly-graphql-server');
-      } catch (restartError) {
-        log.warn({ err: restartError, tenantName, deployment: 'educationelly-graphql-server' }, 'Failed to restart server deployment');
-      }
+      // Restart all deployments in the namespace to pick up the new secret
+      if (tenantDetails.deployments && tenantDetails.deployments.length > 0) {
+        log.info({ tenantName, count: tenantDetails.deployments.length }, 'Restarting tenant deployments');
 
-      try {
-        await k8sService.restartDeployment(tenantName, 'educationelly-graphql-client');
-      } catch (restartError) {
-        log.warn({ err: restartError, tenantName, deployment: 'educationelly-graphql-client' }, 'Failed to restart client deployment');
+        // Execute restarts in parallel for speed
+        await Promise.allSettled(tenantDetails.deployments.map(deployment => {
+          const deployName = deployment.metadata.name;
+          return k8sService.restartDeployment(tenantName, deployName)
+            .catch(err => log.warn({ err, tenantName, deployment: deployName }, 'Failed to restart deployment'));
+        }));
+      } else {
+        log.warn({ tenantName }, 'No deployments found to restart');
       }
 
       log.info({ tenantName, databaseName: dbName, secretName }, 'Database created successfully');
@@ -312,17 +313,18 @@ class DatabaseController {
         dbName
       );
 
-      // Restart pods to pick up the new secret (best effort - continue if fails)
-      try {
-        await k8sService.restartDeployment(tenantName, 'educationelly-graphql-server');
-      } catch (restartError) {
-        log.warn({ err: restartError, tenantName, deployment: 'educationelly-graphql-server' }, 'Failed to restart server deployment');
-      }
+      // Restart all deployments in the namespace to pick up the new secret
+      if (tenantDetails.deployments && tenantDetails.deployments.length > 0) {
+        log.info({ tenantName, count: tenantDetails.deployments.length }, 'Restarting tenant deployments');
 
-      try {
-        await k8sService.restartDeployment(tenantName, 'educationelly-graphql-client');
-      } catch (restartError) {
-        log.warn({ err: restartError, tenantName, deployment: 'educationelly-graphql-client' }, 'Failed to restart client deployment');
+        // Execute restarts in parallel for speed
+        await Promise.allSettled(tenantDetails.deployments.map(deployment => {
+          const deployName = deployment.metadata.name;
+          return k8sService.restartDeployment(tenantName, deployName)
+            .catch(err => log.warn({ err, tenantName, deployment: deployName }, 'Failed to restart deployment'));
+        }));
+      } else {
+        log.warn({ tenantName }, 'No deployments found to restart');
       }
 
       log.info({ tenantName, databaseName: dbName, secretName }, 'Database connected successfully');
