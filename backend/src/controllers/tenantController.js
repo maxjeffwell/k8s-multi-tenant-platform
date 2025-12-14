@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import k8sService from '../services/k8sService.js';
 import atlasService from '../services/atlasService.js';
 import ingressService from '../services/ingressService.js';
@@ -174,15 +175,16 @@ class TenantController {
             env: [
               {
                 name: 'secret', // Re-adding lowercase 'secret' just in case
-                value: Math.random().toString(36).substring(2, 15)
+                value: crypto.randomBytes(32).toString('hex')
               },
               {
                 name: 'SECRET', // Standard naming for Educationelly backend
-                value: Math.random().toString(36).substring(2, 15)
+                value: crypto.randomBytes(32).toString('hex')
               },
               {
                 name: 'JWT_SECRET', // Alternative standard naming
-                value: Math.random().toString(36).substring(2, 15) // Use a new random value or same, doesn't matter as long as it's passed
+                // Generate a 64-character random string to satisfy stricter requirements
+                value: crypto.randomBytes(32).toString('hex')
               }
             ],
             graphqlEndpoint, // might be null
