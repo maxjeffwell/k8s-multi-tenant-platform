@@ -242,6 +242,8 @@ class K8sService {
       const data = secret.data;
 
       let prefix = '';
+      let extraData = {};
+
       switch (databaseKey) {
         case 'educationelly-db':
           prefix = 'EDUCATIONELLY_DB';
@@ -254,7 +256,42 @@ class K8sService {
           break;
         case 'postgres-neon':
           prefix = 'NEONDB';
+          // Bookmarked uses Neon + OpenAI
+          extraData = {
+            'OPENAI_API_KEY': decode(data['OPENAI_API_KEY']),
+            'OPENAI_MODEL': decode(data['OPENAI_MODEL']),
+            'OPENAI_TEMPERATURE': decode(data['OPENAI_TEMPERATURE']),
+            'OPENAI_MAX_TOKENS': decode(data['OPENAI_MAX_TOKENS']),
+            'AI_FEATURES_ENABLED': decode(data['AI_FEATURES_ENABLED']),
+            'AI_CACHE_ENABLED': decode(data['AI_CACHE_ENABLED']),
+            'REACT_APP_API_BASE_URL': decode(data['REACT_APP_API_BASE_URL'])
+          };
           break;
+        case 'firebook-db':
+          // Firebook uses Firebase + Algolia
+          // No "database connection string" in the traditional sense, but we need to pass the config
+          extraData = {
+            'VITE_FIREBASE_API_KEY': decode(data['VITE_FIREBASE_API_KEY']),
+            'VITE_FIREBASE_AUTH_DOMAIN': decode(data['VITE_FIREBASE_AUTH_DOMAIN']),
+            'VITE_FIREBASE_PROJECT_ID': decode(data['VITE_FIREBASE_PROJECT_ID']),
+            'VITE_FIREBASE_STORAGE_BUCKET': decode(data['VITE_FIREBASE_STORAGE_BUCKET']),
+            'VITE_FIREBASE_MESSAGING_SENDER_ID': decode(data['VITE_FIREBASE_MESSAGING_SENDER_ID']),
+            'VITE_FIREBASE_APP_ID': decode(data['VITE_FIREBASE_APP_ID']),
+            'VITE_FIREBASE_MEASUREMENT_ID': decode(data['VITE_FIREBASE_MEASUREMENT_ID']),
+            'VITE_ALGOLIA_APP_ID': decode(data['VITE_ALGOLIA_APP_ID']),
+            'VITE_ALGOLIA_SEARCH_API_KEY': decode(data['VITE_ALGOLIA_SEARCH_API_KEY']),
+            'VITE_ALGOLIA_INDEX_NAME': decode(data['VITE_ALGOLIA_INDEX_NAME'])
+          };
+          // We can return null for connectionString if the app handles it, 
+          // or pass a dummy one if validation requires it.
+          // Let's pass a placeholder to avoid "undefined" errors in other parts of the code.
+          return {
+            connectionString: 'firebase://configured-via-env-vars',
+            username: '',
+            password: '',
+            databaseName: 'firebook',
+            extraData: extraData
+          };
         default:
           throw new Error(`Unknown database key: ${databaseKey}`);
       }
@@ -263,7 +300,8 @@ class K8sService {
         connectionString: decode(data[`${prefix}_CONNECTION_STRING`]),
         username: decode(data[`${prefix}_USERNAME`]),
         password: decode(data[`${prefix}_PASSWORD`]),
-        databaseName: 'default' // Placeholder, often in connection string
+        databaseName: 'default', // Placeholder, often in connection string
+        extraData: extraData
       };
     } catch (error) {
       throw new Error(`Failed to retrieve shared credentials: ${error.message}`);
@@ -311,7 +349,8 @@ class K8sService {
           credentials.connectionString,
           credentials.username,
           credentials.password,
-          credentials.databaseName
+          credentials.databaseName,
+          credentials.extraData
         );
       } else if (!secretName) {
          // Default fallback
@@ -357,7 +396,9 @@ class K8sService {
         finalClientPort,
         replicas,
         clientEnv,
-        null, // Client doesn't need database secret
+        // Client NEEDS the secret if it needs VITE_ keys (Bookmarked/Firebook)
+        // Usually frontend keys are public so it's okay to inject them.
+        secretExists ? secretName : null, 
         clientSecurityContext
       );
 
@@ -716,7 +757,7 @@ class K8sService {
   }
 
   // Create a Kubernetes Secret for database credentials
-  async createDatabaseSecret(namespace, secretName, connectionString, username, password, databaseName) {
+  async createDatabaseSecret(namespace, secretName, connectionString, username, password, databaseName, extraData = {}) {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
     const validatedSecretName = validateResourceName(secretName, 'secret');
 
@@ -732,7 +773,9 @@ class K8sService {
       'DB_PASSWORD': password,
       'DB_NAME': databaseName,
       // Generic fallback (many frameworks use this)
-      'DATABASE_URL': connectionString
+      'DATABASE_URL': connectionString,
+      // Merge extra data (Algolia keys, etc.)
+      ...extraData
     };
 
     if (isPostgres) {
