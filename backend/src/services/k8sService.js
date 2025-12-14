@@ -142,7 +142,8 @@ class K8sService {
           name: validatedName,
           labels: {
             'app.kubernetes.io/managed-by': 'multi-tenant-platform',
-            'tenant': validatedName
+            'tenant': validatedName,
+            'portfolio': 'true'
           }
         }
       };
@@ -422,7 +423,8 @@ class K8sService {
         namespace: validatedNamespace,
         labels: {
           app: validatedAppName,
-          tenant: validatedNamespace
+          tenant: validatedNamespace,
+          portfolio: 'true'
         }
       },
       spec: {
@@ -436,7 +438,8 @@ class K8sService {
           metadata: {
             labels: {
               app: validatedAppName,
-              tenant: validatedNamespace
+              tenant: validatedNamespace,
+              portfolio: 'true'
             },
             annotations: {
               'prometheus.io/scrape': 'true',
@@ -474,7 +477,8 @@ class K8sService {
         name: validatedAppName,
         namespace: validatedNamespace,
         labels: {
-          app: validatedAppName
+          app: validatedAppName,
+          portfolio: 'true'
         }
       },
       spec: {
@@ -752,7 +756,8 @@ class K8sService {
         labels: {
           'app.kubernetes.io/managed-by': 'multi-tenant-platform',
           'app.kubernetes.io/component': 'database',
-          'tenant': validatedNamespace
+          'tenant': validatedNamespace,
+          'portfolio': 'true'
         }
       },
       type: 'Opaque',

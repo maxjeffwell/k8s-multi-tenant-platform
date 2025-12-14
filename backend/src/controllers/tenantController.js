@@ -12,15 +12,30 @@ import {
 
 const log = createLogger('tenant-controller');
 
+const DEFAULT_APP_CONFIGS = {
+  'educationelly-graphql': {
+    serverImage: 'maxjeffwell/educationelly-graphql-server:latest',
+    clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
+    serverPort: 4000,
+    clientPort: 3000
+  },
+  'educationelly': {
+    serverImage: 'maxjeffwell/educationelly-graphql-server:latest',
+    clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
+    serverPort: 4000,
+    clientPort: 3000
+  }
+};
+
 class TenantController {
   // Create a new tenant
   async createTenant(req, res) {
     try {
       // Validate request body using Zod schema
       const validatedData = validateBody(createTenantSchema, req.body);
-      const { tenantName, resourceQuota, database } = validatedData;
+      const { tenantName, resourceQuota, database, appType } = validatedData;
 
-      log.info({ tenantName, hasQuota: !!resourceQuota, hasDatabase: !!database }, 'Creating tenant');
+      log.info({ tenantName, hasQuota: !!resourceQuota, hasDatabase: !!database, appType }, 'Creating tenant');
 
       // Create namespace
       const namespace = await k8sService.createNamespace(tenantName, resourceQuota);
@@ -34,53 +49,137 @@ class TenantController {
       };
 
       // Configure database if provided
-      if (database && database.mongoUri) {
+      let databaseKey = null;
+      if (database) {
+        if (database.databaseKey) {
+           databaseKey = database.databaseKey;
+           response.database = {
+             configured: true,
+             type: 'shared',
+             key: databaseKey
+           };
+        } else if (database.mongoUri) {
+          try {
+            const secretName = `${tenantName}-mongodb-secret`;
+
+            // Extract credentials from URI if not provided
+            let username = database.username || '';
+            let password = database.password || '';
+            let databaseName = database.databaseName || '';
+
+            // Try to parse from URI if not provided
+            if (!username && database.mongoUri.includes('@')) {
+              const match = database.mongoUri.match(/mongodb\+srv:\/\/([^:]+):([^@]+)@/);
+              if (match) {
+                username = match[1];
+                password = match[2];
+              }
+              // Extract database name from URI
+              const dbMatch = database.mongoUri.match(/\.net\/([^?]+)/);
+              if (dbMatch) {
+                databaseName = dbMatch[1];
+              }
+            }
+
+            await k8sService.createDatabaseSecret(
+              tenantName,
+              secretName,
+              database.mongoUri,
+              username,
+              password,
+              databaseName
+            );
+
+            response.database = {
+              configured: true,
+              name: databaseName,
+              username: username,
+              secretName: secretName
+            };
+            response.message = 'Tenant and database configured successfully';
+
+            log.info({ tenantName, databaseName, secretName }, 'Database configured for tenant');
+          } catch (dbError) {
+            log.error({ err: dbError, tenantName }, 'Database configuration failed');
+            response.database = {
+              configured: false,
+              error: 'Database configuration failed.',
+              details: dbError.message
+            };
+          }
+        }
+      }
+
+      // Deploy Application if appType is provided and we have default config
+      if (appType && DEFAULT_APP_CONFIGS[appType]) {
         try {
-          const secretName = `${tenantName}-mongodb-secret`;
+          const appConfig = DEFAULT_APP_CONFIGS[appType];
+          log.info({ tenantName, appType }, 'Deploying default application');
 
-          // Extract credentials from URI if not provided
-          let username = database.username || '';
-          let password = database.password || '';
-          let databaseName = database.databaseName || '';
+          // Generate ingress URLs that will be created
+          const ingressHost = ingressService.generateIngressHost();
+          const serverIngressUrl = `http://${tenantName}-api.${ingressHost}`;
+          const graphqlEndpoint = `${serverIngressUrl}/graphql`;
 
-          // Try to parse from URI if not provided
-          if (!username && database.mongoUri.includes('@')) {
-            const match = database.mongoUri.match(/mongodb\+srv:\/\/([^:]+):([^@]+)@/);
-            if (match) {
-              username = match[1];
-              password = match[2];
-            }
-            // Extract database name from URI
-            const dbMatch = database.mongoUri.match(/\.net\/([^?]+)/);
-            if (dbMatch) {
-              databaseName = dbMatch[1];
-            }
+          const deployConfig = {
+            replicas: 1,
+            appType: appType,
+            serverImage: appConfig.serverImage,
+            clientImage: appConfig.clientImage,
+            serverPort: appConfig.serverPort,
+            clientPort: appConfig.clientPort,
+            env: [],
+            graphqlEndpoint,
+            databaseKey
+          };
+
+          const deployResult = await k8sService.deployEducationelly(tenantName, deployConfig);
+
+          // Create ingress resources
+          let clientIngress = null;
+          let serverIngress = null;
+
+          try {
+            // App prefix is the appType
+            const appPrefix = appType;
+
+            // Create ingress for client (frontend)
+            clientIngress = await ingressService.createClientIngress(
+              tenantName,
+              `${appPrefix}-client`,
+              appConfig.clientPort
+            );
+
+            // Create ingress for server (API)
+            serverIngress = await ingressService.createServerIngress(
+              tenantName,
+              `${appPrefix}-server`,
+              appConfig.serverPort
+            );
+
+            log.debug({ tenantName, clientIngress: clientIngress?.url }, 'Ingresses created during tenant creation');
+          } catch (ingressError) {
+            log.error({ err: ingressError, tenantName }, 'Failed to create ingress during tenant creation');
           }
 
-          await k8sService.createDatabaseSecret(
-            tenantName,
-            secretName,
-            database.mongoUri,
-            username,
-            password,
-            databaseName
-          );
-
-          response.database = {
-            configured: true,
-            name: databaseName,
-            username: username,
-            secretName: secretName
+          response.deployment = {
+            deployed: true,
+            appType: appType,
+            server: deployResult.server?.metadata?.name,
+            client: deployResult.client?.metadata?.name,
+            ingress: {
+              client: clientIngress,
+              server: serverIngress
+            }
           };
-          response.message = 'Tenant and database configured successfully';
+          response.message = 'Tenant created and application deployed successfully';
 
-          log.info({ tenantName, databaseName, secretName }, 'Database configured for tenant');
-        } catch (dbError) {
-          log.error({ err: dbError, tenantName }, 'Database configuration failed');
-          response.database = {
-            configured: false,
-            error: 'Database configuration failed.',
-            details: dbError.message
+        } catch (deployError) {
+          log.error({ err: deployError, tenantName }, 'Failed to deploy application during tenant creation');
+          response.deployment = {
+            deployed: false,
+            error: 'Application deployment failed',
+            details: deployError.message
           };
         }
       }

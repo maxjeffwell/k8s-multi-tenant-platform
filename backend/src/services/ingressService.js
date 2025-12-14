@@ -118,7 +118,8 @@ class IngressService {
         labels: {
           'app.kubernetes.io/managed-by': 'multi-tenant-platform',
           'tenant': validatedTenant,
-          'ingress-type': 'client'
+          'ingress-type': 'client',
+          'portfolio': 'true'
         },
         annotations: {
           'nginx.ingress.kubernetes.io/ssl-redirect': 'false'
@@ -196,7 +197,8 @@ class IngressService {
         labels: {
           'app.kubernetes.io/managed-by': 'multi-tenant-platform',
           'tenant': validatedTenant,
-          'ingress-type': 'server'
+          'ingress-type': 'server',
+          'portfolio': 'true'
         },
         annotations: {
           'nginx.ingress.kubernetes.io/ssl-redirect': 'false'
