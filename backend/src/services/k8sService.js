@@ -43,14 +43,14 @@ function extractBody(response) {
 function isNotFoundError(error) {
   const statusCode = error?.response?.statusCode || error?.statusCode || error?.code;
   return statusCode === 404 ||
-         (error?.message && error.message.toLowerCase().includes('not found'));
+    (error?.message && error.message.toLowerCase().includes('not found'));
 }
 
 // Helper to check if error is "already exists"
 function isAlreadyExistsError(error) {
   const statusCode = error?.response?.statusCode || error?.statusCode;
   return statusCode === 409 ||
-         (error?.message && error.message.toLowerCase().includes('already exists'));
+    (error?.message && error.message.toLowerCase().includes('already exists'));
 }
 
 /**
@@ -330,8 +330,8 @@ class K8sService {
     const finalServerPort = serverPort || 8000;
     const finalClientPort = clientPort || 3000;
 
-    if (!serverImage || !clientImage) {
-      throw new Error('Server and Client images are required');
+    if (!clientImage && !serverImage) {
+      throw new Error('At least one of Server or Client image is required');
     }
 
     try {
@@ -353,25 +353,29 @@ class K8sService {
           credentials.extraData
         );
       } else if (!secretName) {
-         // Default fallback
-         secretName = `${validatedNamespace}-mongodb-secret`;
+        // Default fallback
+        secretName = `${validatedNamespace}-mongodb-secret`;
       }
 
       const secretExists = await this.getSecret(validatedNamespace, secretName);
 
-      // Deploy Server with database secret if available
-      const serverDeployment = await this.createDeployment(
-        validatedNamespace,
-        `${appPrefix}-server`,
-        serverImage,
-        finalServerPort,
-        replicas,
-        env,
-        secretExists ? secretName : null
-      );
+      let serverDeployment = null;
 
-      // Create service for server
-      await this.createService(validatedNamespace, `${appPrefix}-server`, finalServerPort);
+      // Deploy Server with database secret if available AND server image is provided
+      if (serverImage) {
+        serverDeployment = await this.createDeployment(
+          validatedNamespace,
+          `${appPrefix}-server`,
+          serverImage,
+          finalServerPort,
+          replicas,
+          env,
+          secretExists ? secretName : null
+        );
+
+        // Create service for server
+        await this.createService(validatedNamespace, `${appPrefix}-server`, finalServerPort);
+      }
 
       // Deploy Client Frontend (doesn't need database access)
       // Security context allows nginx to bind to privileged ports
@@ -389,21 +393,24 @@ class K8sService {
         });
       }
 
-      const clientDeployment = await this.createDeployment(
-        validatedNamespace,
-        `${appPrefix}-client`,
-        clientImage,
-        finalClientPort,
-        replicas,
-        clientEnv,
-        // Client NEEDS the secret if it needs VITE_ keys (Bookmarked/Firebook)
-        // Usually frontend keys are public so it's okay to inject them.
-        secretExists ? secretName : null, 
-        clientSecurityContext
-      );
+      let clientDeployment = null;
+      if (clientImage) {
+        clientDeployment = await this.createDeployment(
+          validatedNamespace,
+          `${appPrefix}-client`,
+          clientImage,
+          finalClientPort,
+          replicas,
+          clientEnv,
+          // Client NEEDS the secret if it needs VITE_ keys (Bookmarked/Firebook)
+          // Usually frontend keys are public so it's okay to inject them.
+          secretExists ? secretName : null,
+          clientSecurityContext
+        );
 
-      // Create service for client
-      await this.createService(validatedNamespace, `${appPrefix}-client`, finalClientPort);
+        // Create service for client
+        await this.createService(validatedNamespace, `${appPrefix}-client`, finalClientPort);
+      }
 
       return {
         server: serverDeployment,
@@ -951,15 +958,15 @@ class K8sService {
 
         // Check for MongoDB connection indicators
         const hasMongoConnection = logs.includes('MongoDB') ||
-                                   logs.includes('mongoose') ||
-                                   logs.includes('Connected to') ||
-                                   logs.includes('Database: Connected') ||
-                                   /Database.*Connected/i.test(logs);
+          logs.includes('mongoose') ||
+          logs.includes('Connected to') ||
+          logs.includes('Database: Connected') ||
+          /Database.*Connected/i.test(logs);
         const hasMongoError = logs.includes('MongoServerError') ||
-                             logs.includes('MongooseServerSelectionError') ||
-                             logs.includes('Authentication failed') ||
-                             logs.includes('ECONNREFUSED') ||
-                             logs.includes('connection error');
+          logs.includes('MongooseServerSelectionError') ||
+          logs.includes('Authentication failed') ||
+          logs.includes('ECONNREFUSED') ||
+          logs.includes('connection error');
 
         if (hasMongoError) {
           return {

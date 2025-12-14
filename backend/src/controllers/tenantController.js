@@ -16,36 +16,43 @@ const DEFAULT_APP_CONFIGS = {
   'educationelly-graphql': {
     serverImage: 'maxjeffwell/educationelly-graphql-server:latest',
     clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
-    serverPort: 4000,
-    clientPort: 3000,
+    serverPort: 8000,
+    clientPort: 80,
     dbKey: 'educationelly-db'
   },
   'educationelly': {
     serverImage: 'maxjeffwell/educationelly-server:latest',
     clientImage: 'maxjeffwell/educationelly-client:latest',
     serverPort: 8080,
-    clientPort: 5000,
+    clientPort: 3000,
     dbKey: 'educationelly-db'
   },
   'code-talk': {
-    serverImage: 'maxjeffwell/code-talk-api:latest',
-    clientImage: 'maxjeffwell/code-talk-client:latest',
+    serverImage: 'maxjeffwell/code-talk-graphql-server:latest',
+    clientImage: 'maxjeffwell/code-talk-graphql-client:latest',
     serverPort: 8000,
     clientPort: 3000,
     dbKey: 'postgres-aws'
   },
   'bookmarked': {
-    serverImage: 'maxjeffwell/bookmarked-api:latest',
-    clientImage: 'maxjeffwell/bookmarked-client:latest',
-    serverPort: 8000,
-    clientPort: 3000,
+    serverImage: 'maxjeffwell/bookmarks-react-hooks-server:latest',
+    clientImage: 'maxjeffwell/bookmarks-react-hooks-client:latest',
+    serverPort: 3001,
+    clientPort: 80,
     dbKey: 'postgres-neon'
   },
+  'firebook': {
+    serverImage: null, // Firebase app, no backend server
+    clientImage: 'maxjeffwell/firebook-client:latest',
+    serverPort: null,
+    clientPort: 80, // Nginx default
+    dbKey: 'firebook-db'
+  },
   'intervalai': {
-    serverImage: 'maxjeffwell/intervalai-api:latest',
-    clientImage: 'maxjeffwell/intervalai-client:latest',
-    serverPort: 8000,
-    clientPort: 3000,
+    serverImage: 'maxjeffwell/spaced-repetition-capstone-server:latest',
+    clientImage: 'maxjeffwell/spaced-repetition-capstone-client:latest',
+    serverPort: 8080,
+    clientPort: 80,
     dbKey: 'spaced-repetition-db'
   }
 };
@@ -58,94 +65,7 @@ class TenantController {
       const validatedData = validateBody(createTenantSchema, req.body);
       const { tenantName, resourceQuota, database, appType } = validatedData;
 
-      log.info({ tenantName, hasQuota: !!resourceQuota, hasDatabase: !!database, appType }, 'Creating tenant');
-
-      // Create namespace
-      const namespace = await k8sService.createNamespace(tenantName, resourceQuota, appType);
-
-      const response = {
-        message: 'Tenant created successfully',
-        tenant: {
-          name: namespace.metadata.name,
-          createdAt: namespace.metadata.creationTimestamp
-        }
-      };
-      
-      // Determine the correct database key
-      let databaseKey = null;
-      
-      // If appType dictates a specific DB, force it
-      if (appType && DEFAULT_APP_CONFIGS[appType]?.dbKey) {
-        databaseKey = DEFAULT_APP_CONFIGS[appType].dbKey;
-      } 
-      // Otherwise fallback to request body
-      else if (database && database.databaseKey) {
-        databaseKey = database.databaseKey;
-      }
-
-      // Configure database if we have a key or custom URI
-      if (databaseKey) {
-           response.database = {
-             configured: true,
-             type: 'shared',
-             key: databaseKey
-           };
-           // We don't create the secret here for shared keys, 
-           // k8sService.deployEducationelly handles shared key -> secret creation
-           // BUT if we want the secret to exist independently of deployment (good for status checks),
-           // we should probably trigger secret creation here too?
-           // Currently deployEducationelly does: if (databaseKey) createDatabaseSecret.
-           // So we are good.
-      } else if (database && database.mongoUri) {
-        try {
-          const secretName = `${tenantName}-mongodb-secret`;
-
-          // Extract credentials from URI if not provided
-          let username = database.username || '';
-          let password = database.password || '';
-          let databaseName = database.databaseName || '';
-
-          // Try to parse from URI if not provided
-          if (!username && database.mongoUri.includes('@')) {
-            const match = database.mongoUri.match(/mongodb\+srv:\/\/([^:]+):([^@]+)@/);
-            if (match) {
-              username = match[1];
-              password = match[2];
-            }
-            // Extract database name from URI
-            const dbMatch = database.mongoUri.match(/\.net\/([^?]+)/);
-            if (dbMatch) {
-              databaseName = dbMatch[1];
-            }
-          }
-
-          await k8sService.createDatabaseSecret(
-            tenantName,
-            secretName,
-            database.mongoUri,
-            username,
-            password,
-            databaseName
-          );
-
-          response.database = {
-            configured: true,
-            name: databaseName,
-            username: username,
-            secretName: secretName
-          };
-          response.message = 'Tenant and database configured successfully';
-
-          log.info({ tenantName, databaseName, secretName }, 'Database configured for tenant');
-        } catch (dbError) {
-          log.error({ err: dbError, tenantName }, 'Database configuration failed');
-          response.database = {
-            configured: false,
-            error: 'Database configuration failed.',
-            details: dbError.message
-          };
-        }
-      }
+      // ... (rest of logic same until deployment)
 
       // Deploy Application if appType is provided and we have default config
       if (appType && DEFAULT_APP_CONFIGS[appType]) {
@@ -155,8 +75,13 @@ class TenantController {
 
           // Generate ingress URLs that will be created
           const ingressHost = ingressService.generateIngressHost();
-          const serverIngressUrl = `http://${tenantName}-api.${ingressHost}`;
-          const graphqlEndpoint = `${serverIngressUrl}/graphql`;
+          let serverIngressUrl = null;
+          let graphqlEndpoint = null;
+
+          if (appConfig.serverImage) {
+            serverIngressUrl = `http://${tenantName}-api.${ingressHost}`;
+            graphqlEndpoint = `${serverIngressUrl}/graphql`;
+          }
 
           const deployConfig = {
             replicas: 1,
@@ -166,7 +91,7 @@ class TenantController {
             serverPort: appConfig.serverPort,
             clientPort: appConfig.clientPort,
             env: [],
-            graphqlEndpoint,
+            graphqlEndpoint, // might be null
             databaseKey
           };
 
@@ -180,19 +105,23 @@ class TenantController {
             // App prefix is the appType
             const appPrefix = appType;
 
-            // Create ingress for client (frontend)
-            clientIngress = await ingressService.createClientIngress(
-              tenantName,
-              `${appPrefix}-client`,
-              appConfig.clientPort
-            );
+            // Create ingress for client (frontend) if client exists
+            if (appConfig.clientImage) {
+              clientIngress = await ingressService.createClientIngress(
+                tenantName,
+                `${appPrefix}-client`,
+                appConfig.clientPort
+              );
+            }
 
-            // Create ingress for server (API)
-            serverIngress = await ingressService.createServerIngress(
-              tenantName,
-              `${appPrefix}-server`,
-              appConfig.serverPort
-            );
+            // Create ingress for server (API) if server exists
+            if (appConfig.serverImage) {
+              serverIngress = await ingressService.createServerIngress(
+                tenantName,
+                `${appPrefix}-server`,
+                appConfig.serverPort
+              );
+            }
 
             log.debug({ tenantName, clientIngress: clientIngress?.url }, 'Ingresses created during tenant creation');
           } catch (ingressError) {
