@@ -38,7 +38,7 @@ class TenantController {
       log.info({ tenantName, hasQuota: !!resourceQuota, hasDatabase: !!database, appType }, 'Creating tenant');
 
       // Create namespace
-      const namespace = await k8sService.createNamespace(tenantName, resourceQuota);
+      const namespace = await k8sService.createNamespace(tenantName, resourceQuota, appType);
 
       const response = {
         message: 'Tenant created successfully',
@@ -224,6 +224,7 @@ class TenantController {
           status: ns.status.phase,
           createdAt: ns.metadata.creationTimestamp,
           labels: ns.metadata.labels,
+          appType: ns.metadata.labels?.['tenant-app-type'],
           cpu: cpu,
           memory: memory
         };
@@ -278,7 +279,8 @@ class TenantController {
         tenant: {
           name: details.namespace.metadata.name,
           status: details.namespace.status.phase,
-          createdAt: details.namespace.metadata.creationTimestamp
+          createdAt: details.namespace.metadata.creationTimestamp,
+          appType: details.namespace.metadata.labels?.['tenant-app-type']
         },
         database: databaseInfo,
         deployments: details.deployments.map(d => ({

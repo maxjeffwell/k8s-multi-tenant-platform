@@ -132,7 +132,7 @@ class K8sService {
   }
 
   // Create a new namespace for a tenant
-  async createNamespace(tenantName, resourceQuota = {}) {
+  async createNamespace(tenantName, resourceQuota = {}, appType = null) {
     const validatedName = validateResourceName(tenantName, 'namespace');
 
     try {
@@ -147,6 +147,11 @@ class K8sService {
           }
         }
       };
+
+      // Add app type label if provided
+      if (appType) {
+        namespaceManifest.metadata.labels['tenant-app-type'] = appType;
+      }
 
       // Try to create namespace directly
       let namespace;

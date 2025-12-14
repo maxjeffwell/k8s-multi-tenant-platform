@@ -18,6 +18,24 @@ const APP_TYPES = {
   'intervalai': 'IntervalAI'
 };
 
+const APP_DB_REQUIREMENTS = {
+  'educationelly': 'mongodb',
+  'educationelly-graphql': 'mongodb',
+  'code-talk': 'mongodb',
+  'bookmarked': 'mongodb',
+  'firebook': 'mongodb',
+  'intervalai': 'mongodb'
+};
+
+const DATABASE_TYPES = {
+  'educationelly': 'mongodb',
+  'educationelly-graphql': 'mongodb',
+  'mongo': 'mongodb',
+  'postgres': 'postgres',
+  'neon': 'postgres',
+  'custom': 'any'
+};
+
 function CreateTenant({ onSuccess, onCancel }) {
   const [tenantName, setTenantName] = useState('');
   const [cpu, setCpu] = useState('2');
@@ -28,6 +46,29 @@ function CreateTenant({ onSuccess, onCancel }) {
   const [customMongoUri, setCustomMongoUri] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Filter databases based on selected app type
+  const getCompatibleDatabases = (selectedAppType) => {
+    const requiredType = APP_DB_REQUIREMENTS[selectedAppType] || 'mongodb';
+    return Object.entries(DATABASES).filter(([key]) => {
+      const dbType = DATABASE_TYPES[key];
+      return dbType === requiredType || dbType === 'any';
+    });
+  };
+
+  const handleAppTypeChange = (newAppType) => {
+    setAppType(newAppType);
+    // Reset database option to the first compatible one if current is incompatible
+    const requiredType = APP_DB_REQUIREMENTS[newAppType] || 'mongodb';
+    const currentDbType = DATABASE_TYPES[databaseOption];
+    
+    if (databaseOption !== 'custom' && currentDbType !== requiredType) {
+       const compatible = getCompatibleDatabases(newAppType);
+       if (compatible.length > 0) {
+         setDatabaseOption(compatible[0][0]);
+       }
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -92,7 +133,7 @@ function CreateTenant({ onSuccess, onCancel }) {
           <select
             id="appType"
             value={appType}
-            onChange={(e) => setAppType(e.target.value)}
+            onChange={(e) => handleAppTypeChange(e.target.value)}
             className="form-select"
             required
           >
@@ -150,7 +191,7 @@ function CreateTenant({ onSuccess, onCancel }) {
                 onChange={(e) => setDatabaseOption(e.target.value)}
                 className="form-select"
               >
-                {Object.entries(DATABASES).map(([key, label]) => (
+                {getCompatibleDatabases(appType).map(([key, label]) => (
                   <option key={key} value={key}>
                     {label}
                   </option>

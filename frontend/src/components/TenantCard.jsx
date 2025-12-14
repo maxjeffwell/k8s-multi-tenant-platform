@@ -151,6 +151,7 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
                 <DeploymentControls
                   tenantName={tenant.name}
                   onDeploymentCreated={fetchTenantDetails}
+                  lockedAppType={tenant.appType || details?.tenant?.appType}
                 />
               )}
 
