@@ -64,6 +64,7 @@ class TenantController {
       // Validate request body using Zod schema
       const validatedData = validateBody(createTenantSchema, req.body);
       const { tenantName, resourceQuota, database, appType } = validatedData;
+      let response = { tenant: tenantName };
 
       // ... (rest of logic same until deployment)
 
