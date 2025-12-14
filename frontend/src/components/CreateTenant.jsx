@@ -1,39 +1,37 @@
 import { useState } from 'react';
 import { tenantApi } from '../services/api';
 
-const DATABASES = {
-  'educationelly': 'Educationelly (MongoDB)',
-  'educationelly-graphql': 'Educationelly GraphQL (MongoDB)',
-  'mongo': 'Generic MongoDB',
-  'postgres': 'PostgreSQL (AWS RDS)',
-  'neon': 'Neon DB (PostgreSQL)'
-};
-
 const APP_TYPES = {
-  'educationelly': 'Educationelly',
-  'educationelly-graphql': 'Educationelly GraphQL',
-  'code-talk': 'Code Talk',
-  'bookmarked': 'Bookmarked',
-  'firebook': 'FireBook',
-  'intervalai': 'IntervalAI'
-};
-
-const APP_DB_REQUIREMENTS = {
-  'educationelly': 'mongodb',
-  'educationelly-graphql': 'mongodb',
-  'code-talk': 'mongodb',
-  'bookmarked': 'mongodb',
-  'firebook': 'mongodb',
-  'intervalai': 'mongodb'
-};
-
-const DATABASE_TYPES = {
-  'educationelly': 'mongodb',
-  'educationelly-graphql': 'mongodb',
-  'mongo': 'mongodb',
-  'postgres': 'postgres',
-  'neon': 'postgres',
-  'custom': 'any'
+  'educationelly': {
+    label: 'Educationelly',
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+  },
+  'educationelly-graphql': {
+    label: 'Educationelly GraphQL',
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+  },
+  'code-talk': {
+    label: 'Code Talk',
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+  },
+  'bookmarked': {
+    label: 'Bookmarked',
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+  },
+  'firebook': {
+    label: 'FireBook',
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+  },
+  'intervalai': {
+    label: 'IntervalAI',
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+  }
 };
 
 function CreateTenant({ onSuccess, onCancel }) {
@@ -41,34 +39,9 @@ function CreateTenant({ onSuccess, onCancel }) {
   const [cpu, setCpu] = useState('2');
   const [memory, setMemory] = useState('4Gi');
   const [appType, setAppType] = useState('educationelly-graphql');
-  const [configureDatabase, setConfigureDatabase] = useState(false);
-  const [databaseOption, setDatabaseOption] = useState('educationelly');
-  const [customMongoUri, setCustomMongoUri] = useState('');
+  const [configureDatabase, setConfigureDatabase] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  // Filter databases based on selected app type
-  const getCompatibleDatabases = (selectedAppType) => {
-    const requiredType = APP_DB_REQUIREMENTS[selectedAppType] || 'mongodb';
-    return Object.entries(DATABASES).filter(([key]) => {
-      const dbType = DATABASE_TYPES[key];
-      return dbType === requiredType || dbType === 'any';
-    });
-  };
-
-  const handleAppTypeChange = (newAppType) => {
-    setAppType(newAppType);
-    // Reset database option to the first compatible one if current is incompatible
-    const requiredType = APP_DB_REQUIREMENTS[newAppType] || 'mongodb';
-    const currentDbType = DATABASE_TYPES[databaseOption];
-    
-    if (databaseOption !== 'custom' && currentDbType !== requiredType) {
-       const compatible = getCompatibleDatabases(newAppType);
-       if (compatible.length > 0) {
-         setDatabaseOption(compatible[0][0]);
-       }
-    }
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -88,17 +61,9 @@ function CreateTenant({ onSuccess, onCancel }) {
 
       // Add database configuration if enabled
       if (configureDatabase) {
-        if (databaseOption === 'custom') {
-          if (!customMongoUri) {
-            setError('Please enter a custom MongoDB URI');
-            setLoading(false);
-            return;
-          }
-          requestBody.database = { mongoUri: customMongoUri };
-        } else {
-          // Send the selected database key to the backend
-          requestBody.database = { databaseKey: databaseOption };
-        }
+        // Automatically set the correct database key for the selected app
+        const dbKey = APP_TYPES[appType]?.dbKey || 'educationelly-db';
+        requestBody.database = { databaseKey: dbKey };
       }
 
       await tenantApi.createTenant(requestBody);
@@ -133,13 +98,13 @@ function CreateTenant({ onSuccess, onCancel }) {
           <select
             id="appType"
             value={appType}
-            onChange={(e) => handleAppTypeChange(e.target.value)}
+            onChange={(e) => setAppType(e.target.value)}
             className="form-select"
             required
           >
-            {Object.entries(APP_TYPES).map(([key, label]) => (
+            {Object.entries(APP_TYPES).map(([key, config]) => (
               <option key={key} value={key}>
-                {label}
+                {config.label}
               </option>
             ))}
           </select>
@@ -183,44 +148,10 @@ function CreateTenant({ onSuccess, onCancel }) {
 
         {configureDatabase && (
           <div className="database-config-section">
-            <div className="form-group">
-              <label htmlFor="databaseOption">Select Database:</label>
-              <select
-                id="databaseOption"
-                value={databaseOption}
-                onChange={(e) => setDatabaseOption(e.target.value)}
-                className="form-select"
-              >
-                {getCompatibleDatabases(appType).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-                <option value="custom">Custom MongoDB URI</option>
-              </select>
+            <div className="database-info-preview">
+              <p><strong>Database:</strong> {APP_TYPES[appType]?.dbLabel}</p>
+              <p><small>Credentials will be automatically injected from secure storage.</small></p>
             </div>
-
-            {databaseOption === 'custom' && (
-              <div className="form-group">
-                <label htmlFor="customMongoUri">Custom MongoDB URI:</label>
-                <input
-                  type="text"
-                  id="customMongoUri"
-                  value={customMongoUri}
-                  onChange={(e) => setCustomMongoUri(e.target.value)}
-                  placeholder="mongodb+srv://username:password@cluster.mongodb.net/database"
-                  required
-                />
-                <small>Enter the full MongoDB connection string</small>
-              </div>
-            )}
-
-            {databaseOption !== 'custom' && (
-              <div className="database-info-preview">
-                <p><strong>Selected Configuration:</strong> {DATABASES[databaseOption]}</p>
-                <p><small>Credentials will be automatically injected from secure storage.</small></p>
-              </div>
-            )}
           </div>
         )}
 

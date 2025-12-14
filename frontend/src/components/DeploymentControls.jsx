@@ -8,7 +8,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/educationelly-client:latest',
     serverPort: 8080,
     clientPort: 5000,
-    dbType: 'mongodb'
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
   },
   'educationelly-graphql': {
     label: 'educationELLy (GraphQL)',
@@ -16,7 +17,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbType: 'mongodb'
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
   },
   'code-talk': {
     label: 'Code Talk',
@@ -24,7 +26,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/code-talk-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbType: 'mongodb'
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
   },
   'bookmarked': {
     label: 'Bookmarked',
@@ -32,7 +35,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/bookmarked-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbType: 'mongodb'
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
   },
   'firebook': {
     label: 'Firebook',
@@ -40,7 +44,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/firebook-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbType: 'mongodb'
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
   },
   'intervalai': {
     label: 'IntervalAI',
@@ -48,66 +53,36 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/intervalai-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbType: 'mongodb'
+    dbKey: 'educationelly-db',
+    dbLabel: 'Educationelly DB (MongoDB Atlas)'
   }
-};
-
-const DATABASES = {
-  'educationelly-db': 'Educationelly DB (MongoDB Atlas)',
-  'spaced-repetition-db': 'Spaced Repetition DB (MongoDB Atlas)',
-  'postgres-aws': 'PostgreSQL (AWS RDS)',
-  'postgres-neon': 'PostgreSQL (Neon DB)'
-};
-
-const DATABASE_TYPES = {
-  'educationelly-db': 'mongodb',
-  'spaced-repetition-db': 'mongodb',
-  'postgres-aws': 'postgres',
-  'postgres-neon': 'postgres'
 };
 
 function DeploymentControls({ tenantName, onDeploymentCreated, lockedAppType }) {
   const [appType, setAppType] = useState(lockedAppType || 'educationelly-graphql');
-  const [databaseKey, setDatabaseKey] = useState('educationelly-db');
+  // Initialize dbKey based on initial appType
+  const initialConfig = APP_CONFIGS[lockedAppType || 'educationelly-graphql'];
+  const [databaseKey, setDatabaseKey] = useState(initialConfig ? initialConfig.dbKey : 'educationelly-db');
+  
   const [replicas, setReplicas] = useState(1);
-  const [serverImage, setServerImage] = useState(APP_CONFIGS[lockedAppType || 'educationelly-graphql'].serverImage);
-  const [clientImage, setClientImage] = useState(APP_CONFIGS[lockedAppType || 'educationelly-graphql'].clientImage);
-  const [serverPort, setServerPort] = useState(APP_CONFIGS[lockedAppType || 'educationelly-graphql'].serverPort);
-  const [clientPort, setClientPort] = useState(APP_CONFIGS[lockedAppType || 'educationelly-graphql'].clientPort);
+  const [serverImage, setServerImage] = useState(initialConfig ? initialConfig.serverImage : '');
+  const [clientImage, setClientImage] = useState(initialConfig ? initialConfig.clientImage : '');
+  const [serverPort, setServerPort] = useState(initialConfig ? initialConfig.serverPort : 8000);
+  const [clientPort, setClientPort] = useState(initialConfig ? initialConfig.clientPort : 3000);
   const [envVars, setEnvVars] = useState('');
   const [deploying, setDeploying] = useState(false);
   const [error, setError] = useState(null);
 
-  // Filter databases based on selected app type
-  const getCompatibleDatabases = (selectedAppType) => {
-    const config = APP_CONFIGS[selectedAppType];
-    const requiredType = config ? config.dbType : 'mongodb';
-    
-    return Object.entries(DATABASES).filter(([key]) => {
-      const dbType = DATABASE_TYPES[key];
-      return dbType === requiredType;
-    });
-  };
-
   // If lockedAppType changes (e.g. data loaded), update state
   useEffect(() => {
     if (lockedAppType && APP_CONFIGS[lockedAppType]) {
-      setAppType(lockedAppType);
       const config = APP_CONFIGS[lockedAppType];
+      setAppType(lockedAppType);
       setServerImage(config.serverImage);
       setClientImage(config.clientImage);
       setServerPort(config.serverPort);
       setClientPort(config.clientPort);
-      
-      // Also reset DB selection if needed
-      const compatibleDbs = getCompatibleDatabases(lockedAppType);
-      if (compatibleDbs.length > 0) {
-        // Check if current DB is compatible, if not pick first compatible
-        const currentDbType = DATABASE_TYPES[databaseKey];
-        if (currentDbType !== config.dbType) {
-          setDatabaseKey(compatibleDbs[0][0]);
-        }
-      }
+      setDatabaseKey(config.dbKey);
     }
   }, [lockedAppType]);
 
@@ -119,12 +94,7 @@ function DeploymentControls({ tenantName, onDeploymentCreated, lockedAppType }) 
       setClientImage(config.clientImage);
       setServerPort(config.serverPort);
       setClientPort(config.clientPort);
-      
-      // Auto-select compatible DB
-      const compatibleDbs = getCompatibleDatabases(type);
-      if (compatibleDbs.length > 0) {
-         setDatabaseKey(compatibleDbs[0][0]);
-      }
+      setDatabaseKey(config.dbKey);
     }
   };
 
@@ -186,19 +156,11 @@ function DeploymentControls({ tenantName, onDeploymentCreated, lockedAppType }) 
         </div>
 
         <div className="form-group">
-          <label>Select Database:</label>
-          <select 
-            value={databaseKey} 
-            onChange={(e) => setDatabaseKey(e.target.value)}
-            className="db-select"
-            style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', borderRadius: '6px', border: '2px solid #e5e7eb' }}
-          >
-            {getCompatibleDatabases(appType).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
+          <label>Database Connection:</label>
+          <div className="read-only-field" style={{ padding: '0.75rem', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px', color: '#374151' }}>
+            {APP_CONFIGS[appType]?.dbLabel || 'Default Database'}
+          </div>
+          <small style={{ color: '#666' }}>Automatically configured based on application type</small>
         </div>
 
         <div className="form-group">

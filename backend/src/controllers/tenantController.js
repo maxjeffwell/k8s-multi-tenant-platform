@@ -17,13 +17,15 @@ const DEFAULT_APP_CONFIGS = {
     serverImage: 'maxjeffwell/educationelly-graphql-server:latest',
     clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
     serverPort: 4000,
-    clientPort: 3000
+    clientPort: 3000,
+    dbKey: 'educationelly-db'
   },
   'educationelly': {
     serverImage: 'maxjeffwell/educationelly-graphql-server:latest',
     clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
     serverPort: 4000,
-    clientPort: 3000
+    clientPort: 3000,
+    dbKey: 'educationelly-db'
   }
 };
 
@@ -47,18 +49,33 @@ class TenantController {
           createdAt: namespace.metadata.creationTimestamp
         }
       };
-
-      // Configure database if provided
+      
+      // Determine the correct database key
       let databaseKey = null;
-      if (database) {
-        if (database.databaseKey) {
-           databaseKey = database.databaseKey;
+      
+      // If appType dictates a specific DB, force it
+      if (appType && DEFAULT_APP_CONFIGS[appType]?.dbKey) {
+        databaseKey = DEFAULT_APP_CONFIGS[appType].dbKey;
+      } 
+      // Otherwise fallback to request body
+      else if (database && database.databaseKey) {
+        databaseKey = database.databaseKey;
+      }
+
+      // Configure database if we have a key or custom URI
+      if (databaseKey) {
            response.database = {
              configured: true,
              type: 'shared',
              key: databaseKey
            };
-        } else if (database.mongoUri) {
+           // We don't create the secret here for shared keys, 
+           // k8sService.deployEducationelly handles shared key -> secret creation
+           // BUT if we want the secret to exist independently of deployment (good for status checks),
+           // we should probably trigger secret creation here too?
+           // Currently deployEducationelly does: if (databaseKey) createDatabaseSecret.
+           // So we are good.
+      } else if (database && database.mongoUri) {
           try {
             const secretName = `${tenantName}-mongodb-secret`;
 
