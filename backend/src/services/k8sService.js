@@ -454,8 +454,8 @@ class K8sService {
       ],
       resources: {
         requests: {
-          memory: '256Mi',
-          cpu: '250m'
+          memory: '128Mi',
+          cpu: '100m'
         },
         limits: {
           memory: '512Mi',
