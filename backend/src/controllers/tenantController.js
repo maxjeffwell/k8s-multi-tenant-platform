@@ -26,7 +26,7 @@ const DEFAULT_APP_CONFIGS = {
     serverPort: 8080,
     clientPort: 5000,
     dbKey: 'educationelly-db'
-  },,
+  },
   'code-talk': {
     serverImage: 'maxjeffwell/code-talk-api:latest',
     clientImage: 'maxjeffwell/code-talk-client:latest',
