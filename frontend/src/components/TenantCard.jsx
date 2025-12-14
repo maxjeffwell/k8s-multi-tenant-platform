@@ -7,7 +7,7 @@ const APP_DB_MAPPING = {
   'educationelly-graphql': 'educationelly-db',
   'code-talk': 'postgres-aws',
   'bookmarked': 'postgres-neon',
-  'firebook': 'educationelly-db', // Or firebase logic
+  'firebook': 'firebook-db',
   'intervalai': 'spaced-repetition-db'
 };
 
