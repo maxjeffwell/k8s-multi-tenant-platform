@@ -44,7 +44,7 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/firebook-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbKey: 'educationelly-db',
+    dbKey: 'firebook-db',
     dbLabel: 'Firebase Realtime DB (Configured in App)'
   },
   'intervalai': {

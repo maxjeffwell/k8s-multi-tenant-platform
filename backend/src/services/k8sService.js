@@ -238,7 +238,7 @@ class K8sService {
       }
 
       // Helper to decode base64
-      const decode = (val) => val ? Buffer.from(val, 'base64').toString('utf-8') : null;
+      const decode = (val) => val ? Buffer.from(val, 'base64').toString('utf-8') : '';
       const data = secret.data;
 
       let prefix = '';

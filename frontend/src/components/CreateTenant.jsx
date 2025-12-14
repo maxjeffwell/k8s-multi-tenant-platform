@@ -14,23 +14,23 @@ const APP_TYPES = {
   },
   'code-talk': {
     label: 'Code Talk',
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'postgres-aws',
+    dbLabel: 'PostgreSQL (AWS RDS)'
   },
   'bookmarked': {
     label: 'Bookmarked',
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'postgres-neon',
+    dbLabel: 'PostgreSQL (Neon DB)'
   },
   'firebook': {
     label: 'FireBook',
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'firebook-db',
+    dbLabel: 'Firebase Realtime DB (Configured in App)'
   },
   'intervalai': {
     label: 'IntervalAI',
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'spaced-repetition-db',
+    dbLabel: 'Spaced Repetition DB (MongoDB Atlas)'
   }
 };
 
@@ -69,7 +69,14 @@ function CreateTenant({ onSuccess, onCancel }) {
       await tenantApi.createTenant(requestBody);
       onSuccess();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to create tenant');
+      console.error('Create tenant error:', err);
+      if (err.response?.data?.details && Array.isArray(err.response.data.details)) {
+        // Format validation errors
+        const details = err.response.data.details.map(d => d.message).join(', ');
+        setError(`Validation failed: ${details}`);
+      } else {
+        setError(err.response?.data?.error || err.message || 'Failed to create tenant');
+      }
     } finally {
       setLoading(false);
     }
@@ -155,7 +162,11 @@ function CreateTenant({ onSuccess, onCancel }) {
           </div>
         )}
 
-        {error && <div className="error-message">{error}</div>}
+        {error && (
+          <div className="error-message alert alert-danger">
+            {error}
+          </div>
+        )}
 
         <div className="form-actions">
           <button type="submit" className="btn-primary" disabled={loading}>
