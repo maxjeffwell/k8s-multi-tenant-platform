@@ -74,6 +74,7 @@ k8s/secrets/*.yaml
 k8s/secrets/*.yml
 *-secret.yaml
 *-secret.yml
+k8s-db-secrets.yaml
 
 # Kubernetes
 kubeconfig
