@@ -21,11 +21,32 @@ const DEFAULT_APP_CONFIGS = {
     dbKey: 'educationelly-db'
   },
   'educationelly': {
-    serverImage: 'maxjeffwell/educationelly-graphql-server:latest',
-    clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
-    serverPort: 4000,
-    clientPort: 3000,
+    serverImage: 'maxjeffwell/educationelly-server:latest',
+    clientImage: 'maxjeffwell/educationelly-client:latest',
+    serverPort: 8080,
+    clientPort: 5000,
     dbKey: 'educationelly-db'
+  },,
+  'code-talk': {
+    serverImage: 'maxjeffwell/code-talk-api:latest',
+    clientImage: 'maxjeffwell/code-talk-client:latest',
+    serverPort: 8000,
+    clientPort: 3000,
+    dbKey: 'postgres-aws'
+  },
+  'bookmarked': {
+    serverImage: 'maxjeffwell/bookmarked-api:latest',
+    clientImage: 'maxjeffwell/bookmarked-client:latest',
+    serverPort: 8000,
+    clientPort: 3000,
+    dbKey: 'postgres-neon'
+  },
+  'intervalai': {
+    serverImage: 'maxjeffwell/intervalai-api:latest',
+    clientImage: 'maxjeffwell/intervalai-client:latest',
+    serverPort: 8000,
+    clientPort: 3000,
+    dbKey: 'spaced-repetition-db'
   }
 };
 

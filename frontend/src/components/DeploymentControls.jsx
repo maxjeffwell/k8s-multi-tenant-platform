@@ -4,7 +4,7 @@ import { deploymentApi } from '../services/api';
 const APP_CONFIGS = {
   'educationelly': {
     label: 'educationELLy (REST)',
-    serverImage: 'maxjeffwell/educationelly-api:latest',
+    serverImage: 'maxjeffwell/educationelly-server:latest',
     clientImage: 'maxjeffwell/educationelly-client:latest',
     serverPort: 8080,
     clientPort: 5000,
@@ -26,8 +26,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/code-talk-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'postgres-aws',
+    dbLabel: 'PostgreSQL (AWS RDS)'
   },
   'bookmarked': {
     label: 'Bookmarked',
@@ -35,8 +35,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/bookmarked-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'postgres-neon',
+    dbLabel: 'PostgreSQL (Neon DB)'
   },
   'firebook': {
     label: 'Firebook',
@@ -45,7 +45,7 @@ const APP_CONFIGS = {
     serverPort: 8000,
     clientPort: 3000,
     dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbLabel: 'Firebase Realtime DB (Configured in App)'
   },
   'intervalai': {
     label: 'IntervalAI',
@@ -53,8 +53,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/intervalai-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'spaced-repetition-db',
+    dbLabel: 'Spaced Repetition DB (MongoDB Atlas)'
   }
 };
 
