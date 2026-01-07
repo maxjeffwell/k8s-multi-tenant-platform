@@ -262,7 +262,7 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
                         </div>
                         <div className="service-details">
                           <div className="service-ports">
-                            Ports: {service.ports.map((p) => `${p.port}:${p.targetPort}`).join(', ')}
+                            Ports: {service.ports?.map((p) => `${p.port}:${p.targetPort}`).join(', ') || 'N/A'}
                           </div>
                           {matchingPods.length > 0 && (
                             <div className="service-pods">
