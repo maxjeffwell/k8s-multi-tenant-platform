@@ -261,14 +261,20 @@ class K8sService {
       let extraData = {};
 
       switch (databaseKey) {
-        case 'educationelly-db':
-          prefix = 'EDUCATIONELLY_DB';
+        case 'mongodb-educationelly':
+          prefix = 'MONGODB_EDUCATIONELLY';
           break;
-        case 'spaced-repetition-db':
-          prefix = 'SPACED_REPETITION';
+        case 'mongodb-educationelly-graphql':
+          prefix = 'MONGODB_EDUCATIONELLY_GRAPHQL';
           break;
-        case 'postgres-aws':
-          prefix = 'POSTGRES_AWS';
+        case 'mongodb-intervalai':
+          prefix = 'MONGODB_INTERVALAI';
+          break;
+        case 'postgres-codetalk':
+          prefix = 'POSTGRES_CODETALK';
+          break;
+        case 'redis-local':
+          prefix = 'REDIS_LOCAL';
           break;
         case 'postgres-neon':
           prefix = 'NEONDB';
