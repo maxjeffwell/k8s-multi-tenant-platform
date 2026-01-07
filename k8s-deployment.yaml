@@ -78,7 +78,7 @@ spec:
         - name: PORT
           value: "3000"
         - name: INGRESS_DOMAIN
-          value: "el-jefe.me"
+          value: "tenants.el-jefe.me"
         - name: INGRESS_CLASS
           value: "traefik"
         # Monitoring URLs
