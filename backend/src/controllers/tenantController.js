@@ -32,7 +32,7 @@ const DEFAULT_APP_CONFIGS = {
     serverImage: 'maxjeffwell/code-talk-graphql-server:latest',
     clientImage: 'maxjeffwell/code-talk-graphql-client:latest',
     serverPort: 8000,
-    clientPort: 3000,
+    clientPort: 5000,
     dbKey: 'postgres-codetalk'
   },
   'bookmarked': {
@@ -227,33 +227,42 @@ class TenantController {
 
           const deployResult = await k8sService.deployEducationelly(tenantName, deployConfig);
 
-          // Create ingress resources
-          let clientIngress = null;
-          let serverIngress = null;
+          // Create unified ingress with path-based routing
+          let ingress = null;
 
           try {
-            // App prefix is the appType
             const appPrefix = appType;
 
-            // Create ingress for client (frontend) if client exists
-            if (appConfig.clientImage) {
-              clientIngress = await ingressService.createClientIngress(
+            // Copy TLS secret from default namespace to tenant namespace
+            try {
+              await k8sService.copySecret('default', 'tenants-wildcard-tls', tenantName);
+              log.debug({ tenantName }, 'TLS secret copied to tenant namespace');
+            } catch (tlsError) {
+              log.warn({ err: tlsError, tenantName }, 'Failed to copy TLS secret, ingress will not have TLS');
+            }
+
+            // Build client and server configs for unified ingress
+            const clientConfig = appConfig.clientImage ? {
+              name: `${appPrefix}-client`,
+              port: appConfig.clientPort
+            } : null;
+
+            const serverConfig = appConfig.serverImage ? {
+              name: `${appPrefix}-server`,
+              port: appConfig.serverPort
+            } : null;
+
+            // Create unified ingress with path-based routing
+            if (clientConfig) {
+              ingress = await ingressService.createUnifiedIngress(
                 tenantName,
-                `${appPrefix}-client`,
-                appConfig.clientPort
+                clientConfig,
+                serverConfig,
+                { tlsSecretName: 'tenants-wildcard-tls' }
               );
             }
 
-            // Create ingress for server (API) if server exists
-            if (appConfig.serverImage) {
-              serverIngress = await ingressService.createServerIngress(
-                tenantName,
-                `${appPrefix}-server`,
-                appConfig.serverPort
-              );
-            }
-
-            log.debug({ tenantName, clientIngress: clientIngress?.url }, 'Ingresses created during tenant creation');
+            log.debug({ tenantName, ingressUrl: ingress?.url }, 'Unified ingress created during tenant creation');
           } catch (ingressError) {
             log.error({ err: ingressError, tenantName }, 'Failed to create ingress during tenant creation');
           }
@@ -263,10 +272,7 @@ class TenantController {
             appType: appType,
             server: deployResult.server?.metadata?.name,
             client: deployResult.client?.metadata?.name,
-            ingress: {
-              client: clientIngress,
-              server: serverIngress
-            }
+            ingress: ingress
           };
           response.message = 'Tenant created and application deployed successfully';
 

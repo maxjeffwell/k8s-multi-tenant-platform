@@ -177,11 +177,117 @@ class IngressService {
   }
 
   /**
+   * Create a unified ingress with path-based routing for both client and server
+   * Routes /graphql, /api, /socket.io to server; everything else to client
+   * @param {string} tenantName - Name of the tenant/namespace
+   * @param {Object} clientConfig - Client service config { name, port }
+   * @param {Object} serverConfig - Server service config { name, port } (optional for client-only apps)
+   * @param {Object} options - Additional options { tlsSecretName }
+   * @returns {Promise<Object>}
+   */
+  async createUnifiedIngress(tenantName, clientConfig, serverConfig = null, options = {}) {
+    const validatedTenant = validateResourceName(tenantName, 'namespace');
+    const ingressName = `${validatedTenant}-ingress`;
+    const host = `${validatedTenant}.${this.ingressDomain}`;
+    const tlsSecretName = options.tlsSecretName || 'tenants-wildcard-tls';
+
+    // Build paths array - server paths first (more specific), then client catch-all
+    const paths = [];
+
+    if (serverConfig && serverConfig.name) {
+      // Add server routes for API paths
+      const serverPaths = ['/graphql', '/api', '/socket.io'];
+      serverPaths.forEach(path => {
+        paths.push({
+          path: path,
+          pathType: 'Prefix',
+          backend: {
+            service: {
+              name: serverConfig.name,
+              port: { number: serverConfig.port }
+            }
+          }
+        });
+      });
+    }
+
+    // Add client catch-all route
+    paths.push({
+      path: '/',
+      pathType: 'Prefix',
+      backend: {
+        service: {
+          name: clientConfig.name,
+          port: { number: clientConfig.port }
+        }
+      }
+    });
+
+    const ingress = {
+      apiVersion: 'networking.k8s.io/v1',
+      kind: 'Ingress',
+      metadata: {
+        name: ingressName,
+        namespace: validatedTenant,
+        labels: {
+          'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+          'tenant': validatedTenant,
+          'ingress-type': 'unified',
+          'portfolio': 'true'
+        },
+        annotations: {
+          'traefik.ingress.kubernetes.io/router.entrypoints': 'web,websecure'
+        }
+      },
+      spec: {
+        ingressClassName: this.ingressClass,
+        tls: [
+          {
+            hosts: [host],
+            secretName: tlsSecretName
+          }
+        ],
+        rules: [
+          {
+            host: host,
+            http: { paths: paths }
+          }
+        ]
+      }
+    };
+
+    try {
+      try {
+        await this.networkingApi.createNamespacedIngress({ namespace: validatedTenant, body: ingress });
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          await this.networkingApi.replaceNamespacedIngress({ name: ingressName, namespace: validatedTenant, body: ingress });
+        } else {
+          throw error;
+        }
+      }
+
+      this.log.info({ ingressName, host, namespace: validatedTenant, hasServer: !!serverConfig }, 'Unified ingress created');
+
+      return {
+        name: ingressName,
+        url: `https://${host}`,
+        host: host,
+        type: 'unified'
+      };
+    } catch (error) {
+      this.log.error({ err: error, ingressName, namespace: validatedTenant }, 'Failed to create unified ingress');
+      throw new Error(`Failed to create unified ingress: ${error.message}`);
+    }
+  }
+
+  /**
    * Create ingress for tenant's server/API application
    * @param {string} tenantName - Name of the tenant/namespace
    * @param {string} serviceName - Name of the service to expose
    * @param {number} servicePort - Port of the service
    * @returns {Promise<Object>}
+   * @deprecated Use createUnifiedIngress instead for path-based routing
    */
   async createServerIngress(tenantName, serviceName = 'educationelly-graphql-server', servicePort = 4000) {
     const validatedTenant = validateResourceName(tenantName, 'namespace');

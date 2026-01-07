@@ -871,6 +871,62 @@ class K8sService {
     );
   }
 
+  // Copy a secret from one namespace to another
+  async copySecret(sourceNamespace, secretName, targetNamespace) {
+    const validatedSource = validateResourceName(sourceNamespace, 'source namespace');
+    const validatedTarget = validateResourceName(targetNamespace, 'target namespace');
+    const validatedSecretName = validateResourceName(secretName, 'secret');
+
+    try {
+      // Read the source secret
+      const response = await this.coreApi.readNamespacedSecret({
+        name: validatedSecretName,
+        namespace: validatedSource
+      });
+      const sourceSecret = extractBody(response);
+
+      if (!sourceSecret) {
+        throw new Error(`Secret ${validatedSecretName} not found in namespace ${validatedSource}`);
+      }
+
+      // Create new secret in target namespace (strip resourceVersion and uid for new resource)
+      const newSecret = {
+        apiVersion: 'v1',
+        kind: 'Secret',
+        metadata: {
+          name: validatedSecretName,
+          namespace: validatedTarget,
+          labels: {
+            ...sourceSecret.metadata?.labels,
+            'copied-from': validatedSource
+          }
+        },
+        type: sourceSecret.type,
+        data: sourceSecret.data
+      };
+
+      // Create or update the secret in target namespace
+      try {
+        await this.coreApi.createNamespacedSecret({ namespace: validatedTarget, body: newSecret });
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          await this.coreApi.replaceNamespacedSecret({
+            name: validatedSecretName,
+            namespace: validatedTarget,
+            body: newSecret
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      this.log.info({ secretName: validatedSecretName, from: validatedSource, to: validatedTarget }, 'Secret copied');
+      return { message: `Secret ${validatedSecretName} copied to ${validatedTarget}` };
+    } catch (error) {
+      throw new Error(`Failed to copy secret: ${error.message}`);
+    }
+  }
+
   // Delete a secret from a namespace
   async deleteSecret(namespace, secretName) {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
