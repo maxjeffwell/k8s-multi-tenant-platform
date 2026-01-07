@@ -244,7 +244,7 @@ class K8sService {
   }
 
   // Get credentials from the shared platform secret
-  async getSharedDatabaseCredentials(databaseKey) {
+  async getSharedDatabaseCredentials(databaseKey, namespace = null) {
     try {
       // Read the master secret from default namespace
       // Using 'production-db-credentials' to avoid conflict with ArgoCD managed 'tenantflow-db-credentials'
@@ -270,13 +270,15 @@ class K8sService {
         case 'mongodb-intervalai':
           prefix = 'MONGODB_INTERVALAI';
           // IntervalAI uses Triton Inference Server for ML predictions
+          // CLIENT_ORIGIN is set dynamically based on tenant namespace
           extraData = {
             'USE_TRITON': 'true',
             'TRITON_URL': 'http://triton-service.default.svc.cluster.local:8000',
             'TRITON_MODEL_NAME': 'interval_ai',
             'TFJS_BACKEND': 'node',
             'USE_OPENVINO': 'false',
-            'API_ONLY': 'true'
+            'API_ONLY': 'true',
+            'CLIENT_ORIGIN': `https://${namespace}.tenants.el-jefe.me`
           };
           break;
         case 'postgres-codetalk':
@@ -374,7 +376,7 @@ class K8sService {
 
       // If a database key is provided, setup the secret from shared credentials
       if (databaseKey) {
-        const credentials = await this.getSharedDatabaseCredentials(databaseKey);
+        const credentials = await this.getSharedDatabaseCredentials(databaseKey, validatedNamespace);
         secretName = `${validatedNamespace}-db-secret`;
 
         await this.createDatabaseSecret(
