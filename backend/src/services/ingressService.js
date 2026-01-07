@@ -1,4 +1,4 @@
-import { k8sNetworkingApi } from '../config/k8s.js';
+import { k8sNetworkingApi, k8sCustomObjectsApi } from '../config/k8s.js';
 import { createLogger } from '../utils/logger.js';
 
 // Default logger - can be overridden via dependency injection for testing
@@ -52,11 +52,16 @@ function isAlreadyExistsError(error) {
          (error?.message && error.message.toLowerCase().includes('already exists'));
 }
 
+// Traefik CRD constants
+const TRAEFIK_GROUP = 'traefik.io';
+const TRAEFIK_VERSION = 'v1alpha1';
+
 class IngressService {
   /**
    * Create an IngressService instance
    * @param {Object} deps - Optional dependencies for testing
    * @param {Object} deps.networkingApi - Kubernetes NetworkingV1Api client
+   * @param {Object} deps.customObjectsApi - Kubernetes CustomObjectsApi client
    * @param {Object} deps.config - Configuration overrides
    * @param {string} deps.config.ingressDomain - Base ingress domain
    * @param {string} deps.config.ingressClass - Ingress class name
@@ -65,6 +70,7 @@ class IngressService {
   constructor(deps = {}) {
     const config = deps.config || {};
     this.networkingApi = deps.networkingApi || k8sNetworkingApi;
+    this.customObjectsApi = deps.customObjectsApi || k8sCustomObjectsApi;
     this.ingressDomain = config.ingressDomain || process.env.INGRESS_DOMAIN || 'localhost.nip.io';
     this.ingressClass = config.ingressClass || process.env.INGRESS_CLASS || 'nginx';
     this.log = deps.logger || defaultLog;
@@ -95,6 +101,151 @@ class IngressService {
    */
   getTenantServerURL(tenantName) {
     return `http://${tenantName}-api.${this.ingressDomain}`;
+  }
+
+  /**
+   * Create Traefik Middleware for stripping API prefix
+   * @param {string} namespace - Kubernetes namespace
+   * @param {string} middlewareName - Name for the middleware
+   * @param {string} prefix - Prefix to strip (default: '/api')
+   * @returns {Promise<Object>}
+   */
+  async createStripPrefixMiddleware(namespace, middlewareName = 'strip-api-prefix', prefix = '/api') {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+
+    const middleware = {
+      apiVersion: `${TRAEFIK_GROUP}/${TRAEFIK_VERSION}`,
+      kind: 'Middleware',
+      metadata: {
+        name: middlewareName,
+        namespace: validatedNamespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+          'tenant': validatedNamespace,
+          'portfolio': 'true'
+        }
+      },
+      spec: {
+        stripPrefix: {
+          prefixes: [prefix]
+        }
+      }
+    };
+
+    try {
+      try {
+        await this.customObjectsApi.createNamespacedCustomObject({
+          group: TRAEFIK_GROUP,
+          version: TRAEFIK_VERSION,
+          namespace: validatedNamespace,
+          plural: 'middlewares',
+          body: middleware
+        });
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          await this.customObjectsApi.replaceNamespacedCustomObject({
+            group: TRAEFIK_GROUP,
+            version: TRAEFIK_VERSION,
+            namespace: validatedNamespace,
+            plural: 'middlewares',
+            name: middlewareName,
+            body: middleware
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      this.log.info({ middlewareName, namespace: validatedNamespace }, 'Traefik middleware created');
+      return middleware;
+    } catch (error) {
+      this.log.error({ err: error, middlewareName, namespace: validatedNamespace }, 'Failed to create Traefik middleware');
+      throw new Error(`Failed to create Traefik middleware: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create Traefik IngressRoute for API paths with prefix stripping
+   * @param {string} namespace - Kubernetes namespace
+   * @param {string} host - Host for the ingress
+   * @param {Object} serverConfig - Server service config { name, port }
+   * @param {string} tlsSecretName - TLS secret name
+   * @returns {Promise<Object>}
+   */
+  async createTraefikApiRoute(namespace, host, serverConfig, tlsSecretName = 'tenants-wildcard-tls') {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const ingressRouteName = `${validatedNamespace}-api`;
+    const middlewareName = 'strip-api-prefix';
+
+    // First create the middleware
+    await this.createStripPrefixMiddleware(validatedNamespace, middlewareName, '/api');
+
+    const ingressRoute = {
+      apiVersion: `${TRAEFIK_GROUP}/${TRAEFIK_VERSION}`,
+      kind: 'IngressRoute',
+      metadata: {
+        name: ingressRouteName,
+        namespace: validatedNamespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+          'tenant': validatedNamespace,
+          'ingress-type': 'api',
+          'portfolio': 'true'
+        }
+      },
+      spec: {
+        entryPoints: ['websecure'],
+        routes: [
+          {
+            kind: 'Rule',
+            match: `Host(\`${host}\`) && PathPrefix(\`/api\`)`,
+            middlewares: [
+              { name: middlewareName }
+            ],
+            services: [
+              {
+                name: serverConfig.name,
+                port: serverConfig.port
+              }
+            ]
+          }
+        ],
+        tls: {
+          secretName: tlsSecretName
+        }
+      }
+    };
+
+    try {
+      try {
+        await this.customObjectsApi.createNamespacedCustomObject({
+          group: TRAEFIK_GROUP,
+          version: TRAEFIK_VERSION,
+          namespace: validatedNamespace,
+          plural: 'ingressroutes',
+          body: ingressRoute
+        });
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          await this.customObjectsApi.replaceNamespacedCustomObject({
+            group: TRAEFIK_GROUP,
+            version: TRAEFIK_VERSION,
+            namespace: validatedNamespace,
+            plural: 'ingressroutes',
+            name: ingressRouteName,
+            body: ingressRoute
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      this.log.info({ ingressRouteName, host, namespace: validatedNamespace }, 'Traefik IngressRoute created');
+      return ingressRoute;
+    } catch (error) {
+      this.log.error({ err: error, ingressRouteName, namespace: validatedNamespace }, 'Failed to create Traefik IngressRoute');
+      throw new Error(`Failed to create Traefik IngressRoute: ${error.message}`);
+    }
   }
 
   /**
@@ -178,7 +329,7 @@ class IngressService {
 
   /**
    * Create a unified ingress with path-based routing for both client and server
-   * Routes /graphql, /api, /socket.io to server; everything else to client
+   * Uses Traefik IngressRoute for API paths (with prefix stripping) and standard Ingress for client
    * @param {string} tenantName - Name of the tenant/namespace
    * @param {Object} clientConfig - Client service config { name, port }
    * @param {Object} serverConfig - Server service config { name, port } (optional for client-only apps)
@@ -191,38 +342,12 @@ class IngressService {
     const host = `${validatedTenant}.${this.ingressDomain}`;
     const tlsSecretName = options.tlsSecretName || 'tenants-wildcard-tls';
 
-    // Build paths array - server paths first (more specific), then client catch-all
-    const paths = [];
-
+    // If server config provided, create Traefik IngressRoute for API with prefix stripping
     if (serverConfig && serverConfig.name) {
-      // Add server routes for API paths
-      const serverPaths = ['/graphql', '/api', '/socket.io'];
-      serverPaths.forEach(path => {
-        paths.push({
-          path: path,
-          pathType: 'Prefix',
-          backend: {
-            service: {
-              name: serverConfig.name,
-              port: { number: serverConfig.port }
-            }
-          }
-        });
-      });
+      await this.createTraefikApiRoute(validatedTenant, host, serverConfig, tlsSecretName);
     }
 
-    // Add client catch-all route
-    paths.push({
-      path: '/',
-      pathType: 'Prefix',
-      backend: {
-        service: {
-          name: clientConfig.name,
-          port: { number: clientConfig.port }
-        }
-      }
-    });
-
+    // Create standard Ingress only for client catch-all route
     const ingress = {
       apiVersion: 'networking.k8s.io/v1',
       kind: 'Ingress',
@@ -232,7 +357,7 @@ class IngressService {
         labels: {
           'app.kubernetes.io/managed-by': 'multi-tenant-platform',
           'tenant': validatedTenant,
-          'ingress-type': 'unified',
+          'ingress-type': 'client',
           'portfolio': 'true'
         },
         annotations: {
@@ -250,7 +375,20 @@ class IngressService {
         rules: [
           {
             host: host,
-            http: { paths: paths }
+            http: {
+              paths: [
+                {
+                  path: '/',
+                  pathType: 'Prefix',
+                  backend: {
+                    service: {
+                      name: clientConfig.name,
+                      port: { number: clientConfig.port }
+                    }
+                  }
+                }
+              ]
+            }
           }
         ]
       }

@@ -18,11 +18,13 @@ try {
 const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
 const k8sAppsApi = kc.makeApiClient(k8s.AppsV1Api);
 const k8sNetworkingApi = kc.makeApiClient(k8s.NetworkingV1Api);
+const k8sCustomObjectsApi = kc.makeApiClient(k8s.CustomObjectsApi);
 
 export {
   kc,
   k8sApi,
   k8sAppsApi,
   k8sNetworkingApi,
+  k8sCustomObjectsApi,
   k8sConfigLoaded
 };

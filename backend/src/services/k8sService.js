@@ -278,14 +278,17 @@ class K8sService {
           break;
         case 'postgres-neon':
           prefix = 'NEONDB';
-          // Bookmarked uses Neon + OpenAI
+          // Bookmarked uses Neon + Local AI (Llama via shared gateway)
           extraData = {
             'OPENAI_API_KEY': decode(data['OPENAI_API_KEY']),
             'OPENAI_MODEL': decode(data['OPENAI_MODEL']),
             'OPENAI_TEMPERATURE': decode(data['OPENAI_TEMPERATURE']),
             'OPENAI_MAX_TOKENS': decode(data['OPENAI_MAX_TOKENS']),
-            'AI_FEATURES_ENABLED': decode(data['AI_FEATURES_ENABLED']),
-            'AI_CACHE_ENABLED': decode(data['AI_CACHE_ENABLED']),
+            'AI_FEATURES_ENABLED': 'true',
+            'AI_CACHE_ENABLED': 'true',
+            'USE_LOCAL_AI': 'true',
+            'LOCAL_AI_URL': 'http://shared-ai-gateway-service.default.svc.cluster.local:8002',
+            'LOCAL_AI_ENDPOINT': '/api/ai/generate',
             'REACT_APP_API_BASE_URL': decode(data['REACT_APP_API_BASE_URL'])
           };
           break;

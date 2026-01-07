@@ -38,15 +38,6 @@ const APP_CONFIGS = {
     dbKey: 'postgres-neon',
     dbLabel: 'PostgreSQL (Neon DB)'
   },
-  'firebook': {
-    label: 'Firebook',
-    serverImage: null,
-    clientImage: 'maxjeffwell/firebook:latest',
-    serverPort: null,
-    clientPort: 80,
-    dbKey: 'firebook-db',
-    dbLabel: 'Firebase Realtime DB (Configured in App)'
-  },
   'intervalai': {
     label: 'IntervalAI',
     serverImage: 'maxjeffwell/spaced-repetition-capstone-server:latest',
