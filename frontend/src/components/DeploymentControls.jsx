@@ -22,8 +22,8 @@ const APP_CONFIGS = {
   },
   'code-talk': {
     label: 'Code Talk',
-    serverImage: 'maxjeffwell/code-talk-api:latest',
-    clientImage: 'maxjeffwell/code-talk-client:latest',
+    serverImage: 'maxjeffwell/code-talk-graphql-server:latest',
+    clientImage: 'maxjeffwell/code-talk-graphql-client:latest',
     serverPort: 8000,
     clientPort: 3000,
     dbKey: 'postgres-codetalk',
