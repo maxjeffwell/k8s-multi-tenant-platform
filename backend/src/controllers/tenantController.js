@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import k8sService from '../services/k8sService.js';
-import atlasService from '../services/atlasService.js';
 import ingressService from '../services/ingressService.js';
+// Note: Atlas service removed - using local MongoDB pods instead
 import { createLogger } from '../utils/logger.js';
 import {
   validateBody,
@@ -19,21 +19,21 @@ const DEFAULT_APP_CONFIGS = {
     clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
     serverPort: 8000,
     clientPort: 80,
-    dbKey: 'educationelly-db'
+    dbKey: 'mongodb-educationelly-graphql'
   },
   'educationelly': {
     serverImage: 'maxjeffwell/educationelly-server:latest',
     clientImage: 'maxjeffwell/educationelly-client:latest',
     serverPort: 8080,
     clientPort: 3000,
-    dbKey: 'educationelly-db'
+    dbKey: 'mongodb-educationelly'
   },
   'code-talk': {
     serverImage: 'maxjeffwell/code-talk-graphql-server:latest',
     clientImage: 'maxjeffwell/code-talk-graphql-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbKey: 'postgres-aws'
+    dbKey: 'postgres-codetalk'
   },
   'bookmarked': {
     serverImage: 'maxjeffwell/bookmarks-react-hooks-server:latest',
@@ -54,7 +54,7 @@ const DEFAULT_APP_CONFIGS = {
     clientImage: 'maxjeffwell/spaced-repetition-capstone-client:latest',
     serverPort: 8080,
     clientPort: 80,
-    dbKey: 'spaced-repetition-db'
+    dbKey: 'mongodb-intervalai'
   }
 };
 
@@ -191,28 +191,28 @@ class TenantController {
             databaseKey
           };
 
-          // SPECIAL CONFIG FOR CODE-TALK (Needs Postgres + Redis)
+          // SPECIAL CONFIG FOR CODE-TALK (Needs Postgres + Redis - using local pods)
           if (appType === 'code-talk') {
             deployConfig.env.push(
               {
                 name: 'DATABASE_URL',
-                value: 'postgres://ue2p717tmbg7uj:p5181fcc48b09e9c27b27fe64c388e33f675c42effa900b05979b61857159925d@c5cnr847jq0fj3.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com:5432/de3iq68tg4peu'
+                value: 'postgres://postgres:codetalk_postgres123@postgresql-codetalk.default.svc.cluster.local:5432/codetalk'
               },
               {
                 name: 'REDIS_URL',
-                value: 'rediss://:p40e3d46b6655a2eada48df7a524df3ed36f490323a854685737416bbed6a99d6@ec2-35-175-134-146.compute-1.amazonaws.com:6380'
+                value: 'redis://:redis123@redis.default.svc.cluster.local:6379'
               },
               {
                 name: 'REDIS_HOST',
-                value: 'ec2-35-175-134-146.compute-1.amazonaws.com'
+                value: 'redis.default.svc.cluster.local'
               },
               {
                 name: 'REDIS_PORT',
-                value: '6380'
+                value: '6379'
               },
               {
                 name: 'REDIS_PASSWORD',
-                value: 'p40e3d46b6655a2eada48df7a524df3ed36f490323a854685737416bbed6a99d6'
+                value: 'redis123'
               }
             );
           }
@@ -480,16 +480,7 @@ class TenantController {
 
       log.info({ tenantName }, 'Deleting tenant');
 
-      // Delete database user from Atlas if configured
-      if (atlasService.isConfigured()) {
-        try {
-          await atlasService.deleteDatabaseUser(tenantName);
-          log.debug({ tenantName }, 'Deleted database user from Atlas');
-        } catch (dbError) {
-          log.warn({ err: dbError, tenantName }, 'Failed to delete database user');
-          // Continue with namespace deletion even if database deletion fails
-        }
-      }
+      // Note: Using local MongoDB pods - no external database user cleanup needed
 
       // Delete ingresses for the tenant
       try {

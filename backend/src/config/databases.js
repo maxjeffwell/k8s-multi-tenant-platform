@@ -1,39 +1,45 @@
 // Database configurations
-// In production, these should be loaded from environment variables or a secure secrets manager
+// Using local Kubernetes pods for MongoDB, PostgreSQL, and Redis
+// Neon Cloud DB is kept for bookmarked application
 
 const databases = {
-  test: {
-    connectionString: process.env.TEST_DB_CONNECTION_STRING,
-    username: process.env.TEST_DB_USERNAME,
-    password: process.env.TEST_DB_PASSWORD,
-    databaseName: 'test',
-    displayName: 'Test Database',
-    description: 'Development/testing environment'
+  // Local MongoDB - Educationelly (default namespace)
+  'mongodb-educationelly': {
+    connectionString: process.env.MONGODB_EDUCATIONELLY_CONNECTION_STRING,
+    username: process.env.MONGODB_EDUCATIONELLY_USERNAME,
+    password: process.env.MONGODB_EDUCATIONELLY_PASSWORD,
+    databaseName: 'educationelly',
+    displayName: 'MongoDB Educationelly (Local)',
+    description: 'Local MongoDB for Educationelly application'
   },
-  'educationelly-db': {
-    connectionString: process.env.EDUCATIONELLY_DB_CONNECTION_STRING,
-    username: process.env.EDUCATIONELLY_DB_USERNAME,
-    password: process.env.EDUCATIONELLY_DB_PASSWORD,
-    databaseName: 'educationelly-db',
-    displayName: 'Educationelly DB',
-    description: 'Production database'
+  // Local MongoDB - Educationelly GraphQL (default namespace)
+  'mongodb-educationelly-graphql': {
+    connectionString: process.env.MONGODB_EDUCATIONELLY_GRAPHQL_CONNECTION_STRING,
+    username: process.env.MONGODB_EDUCATIONELLY_GRAPHQL_USERNAME,
+    password: process.env.MONGODB_EDUCATIONELLY_GRAPHQL_PASSWORD,
+    databaseName: 'educationelly',
+    displayName: 'MongoDB Educationelly GraphQL (Local)',
+    description: 'Local MongoDB for Educationelly GraphQL application'
   },
-  'spaced-repetition-db': {
-    connectionString: process.env.SPACED_REPETITION_CONNECTION_STRING,
-    username: process.env.SPACED_REPETITION_USERNAME,
-    password: process.env.SPACED_REPETITION_PASSWORD,
-    databaseName: 'spaced-repetition',
-    displayName: 'Spaced Repetition DB',
-    description: 'Spaced repetition application database'
+  // Local MongoDB - IntervalAI (default namespace)
+  'mongodb-intervalai': {
+    connectionString: process.env.MONGODB_INTERVALAI_CONNECTION_STRING,
+    username: process.env.MONGODB_INTERVALAI_USERNAME,
+    password: process.env.MONGODB_INTERVALAI_PASSWORD,
+    databaseName: 'intervalai',
+    displayName: 'MongoDB IntervalAI (Local)',
+    description: 'Local MongoDB for IntervalAI spaced repetition application'
   },
-  'postgres-aws': {
-    connectionString: process.env.POSTGRES_AWS_CONNECTION_STRING,
-    username: process.env.POSTGRES_AWS_USERNAME,
-    password: process.env.POSTGRES_AWS_PASSWORD,
-    databaseName: 'postgres',
-    displayName: 'PostgreSQL AWS RDS',
-    description: 'PostgreSQL production database on AWS'
+  // Local PostgreSQL - Code-Talk (default namespace)
+  'postgres-codetalk': {
+    connectionString: process.env.POSTGRES_CODETALK_CONNECTION_STRING,
+    username: process.env.POSTGRES_CODETALK_USERNAME,
+    password: process.env.POSTGRES_CODETALK_PASSWORD,
+    databaseName: 'codetalk',
+    displayName: 'PostgreSQL Code-Talk (Local)',
+    description: 'Local PostgreSQL for Code-Talk application'
   },
+  // Neon PostgreSQL (Cloud - kept for bookmarked)
   'postgres-neon': {
     connectionString: process.env.NEONDB_CONNECTION_STRING,
     username: process.env.NEONDB_USERNAME,
@@ -42,6 +48,16 @@ const databases = {
     displayName: 'PostgreSQL Neon DB',
     description: 'Serverless PostgreSQL with branching'
   },
+  // Local Redis (default namespace)
+  'redis-local': {
+    connectionString: process.env.REDIS_LOCAL_CONNECTION_STRING,
+    username: '',
+    password: process.env.REDIS_LOCAL_PASSWORD,
+    databaseName: 'redis',
+    displayName: 'Redis (Local)',
+    description: 'Local Redis for caching and sessions'
+  },
+  // Firebase (kept for potential future use)
   'firebook-db': {
     connectionString: 'firebase://configured-via-env-vars',
     username: 'firebase',

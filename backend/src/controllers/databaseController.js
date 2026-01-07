@@ -1,4 +1,3 @@
-import atlasService from '../services/atlasService.js';
 import k8sService from '../services/k8sService.js';
 import { getDatabaseOptions, getDatabaseConfig } from '../config/databases.js';
 import { createLogger } from '../utils/logger.js';
@@ -31,7 +30,7 @@ class DatabaseController {
   }
 
   /**
-   * Create a MongoDB Atlas database for a tenant
+   * Create/configure a database for a tenant
    * POST /api/tenants/:tenantName/database
    * Body: { databaseKey } - the key of the pre-configured database to use
    *   OR  { connectionString, username, password, databaseName } - custom credentials
@@ -76,17 +75,17 @@ class DatabaseController {
         dbUsername = dbConfig.username;
         dbPassword = dbConfig.password;
         dbName = dbConfig.databaseName;
-      } else {
-        // Use provided credentials or generate defaults for a shared database
-        dbConnectionString = connectionString || atlasService.getConnectionString(
-          username || 'shared-user',
-          password || 'shared-password',
-          databaseName || `db-${tenantName}`
-        );
-
-        dbUsername = username || 'shared-user';
-        dbPassword = password || 'shared-password';
+      } else if (connectionString) {
+        // Use provided custom credentials
+        dbConnectionString = connectionString;
+        dbUsername = username || 'custom-user';
+        dbPassword = password || 'custom-password';
         dbName = databaseName || `db-${tenantName}`;
+      } else {
+        return res.status(400).json({
+          error: 'Missing database configuration',
+          message: 'Either databaseKey or connectionString must be provided'
+        });
       }
 
       // Store credentials in Kubernetes Secret
@@ -138,32 +137,25 @@ class DatabaseController {
   }
 
   /**
-   * Delete a tenant's database
+   * Delete a tenant's database configuration
    * DELETE /api/tenants/:tenantName/database
+   * Note: This only removes the K8s secret, not the actual database data
    */
   async deleteDatabase(req, res) {
     try {
       // Validate tenant name parameter
       const { tenantName } = validateParams(tenantNameParamSchema, req.params);
 
-      log.info({ tenantName }, 'Deleting database for tenant');
+      log.info({ tenantName }, 'Deleting database configuration for tenant');
 
-      if (!atlasService.isConfigured()) {
-        return res.status(500).json({
-          error: 'MongoDB Atlas is not configured'
-        });
-      }
-
-      // Delete database user from Atlas
-      await atlasService.deleteDatabaseUser(tenantName);
-
-      // Delete Kubernetes secret
+      // Delete Kubernetes secret (database data in local pods is preserved)
       const secretName = `${tenantName}-mongodb-secret`;
       await k8sService.deleteSecret(tenantName, secretName);
 
-      log.info({ tenantName }, 'Database deleted successfully');
+      log.info({ tenantName }, 'Database configuration deleted successfully');
       res.json({
-        message: 'Database deleted successfully'
+        message: 'Database configuration deleted successfully',
+        note: 'Database data in local pods is preserved'
       });
     } catch (error) {
       if (error.name === 'ValidationError') {
@@ -174,7 +166,7 @@ class DatabaseController {
       }
       log.error({ err: error, tenantName: req.params?.tenantName }, 'Database deletion failed');
       res.status(500).json({
-        error: 'Failed to delete database',
+        error: 'Failed to delete database configuration',
         details: error.message
       });
     }
@@ -233,30 +225,25 @@ class DatabaseController {
   }
 
   /**
-   * Test Atlas connection
+   * Test database connectivity
    * GET /api/database/test
+   * Returns status of configured local database pods
    */
-  async testAtlasConnection(req, res) {
+  async testDatabaseConnection(req, res) {
     try {
-      if (!atlasService.isConfigured()) {
-        return res.status(500).json({
-          success: false,
-          error: 'MongoDB Atlas is not configured'
-        });
-      }
-
-      const result = await atlasService.testConnection();
-      log.info({ project: result.projectName }, 'Atlas connection test successful');
+      const databases = getDatabaseOptions();
+      log.info('Database connection test - returning available databases');
       res.json({
         success: true,
-        message: 'Successfully connected to MongoDB Atlas',
-        project: result.projectName
+        message: 'Database configuration loaded successfully',
+        databases: databases,
+        note: 'Using local Kubernetes pods for MongoDB, PostgreSQL, and Redis. Neon Cloud for bookmarked.'
       });
     } catch (error) {
-      log.error({ err: error }, 'Atlas connection test failed');
+      log.error({ err: error }, 'Database connection test failed');
       res.status(500).json({
         success: false,
-        error: 'Failed to connect to Atlas',
+        error: 'Failed to load database configuration',
         details: error.message
       });
     }
@@ -265,16 +252,16 @@ class DatabaseController {
   /**
    * Connect tenant to existing database (without creating new database user)
    * POST /api/tenants/:tenantName/database/connect
-   * Body: { connectionString, username, password, databaseName } (all optional, uses defaults if not provided)
+   * Body: { connectionString, username, password, databaseName } or { databaseKey }
    */
   async connectExistingDatabase(req, res) {
     try {
       // Validate tenant name parameter
       const { tenantName } = validateParams(tenantNameParamSchema, req.params);
       // Validate request body - validates connection string format, credentials
-      const { connectionString, username, password, databaseName } = validateBody(connectDatabaseSchema, req.body || {});
+      const { databaseKey, connectionString, username, password, databaseName } = validateBody(connectDatabaseSchema, req.body || {});
 
-      log.info({ tenantName, hasDatabaseName: !!databaseName }, 'Connecting tenant to existing database');
+      log.info({ tenantName, databaseKey, hasDatabaseName: !!databaseName }, 'Connecting tenant to existing database');
 
       // Check if namespace exists
       const tenantDetails = await k8sService.getTenantDetails(tenantName);
@@ -292,18 +279,35 @@ class DatabaseController {
         });
       }
 
-      // Use provided credentials or generate defaults for a shared database
-      const dbConnectionString = connectionString || atlasService.getConnectionString(
-        username || 'shared-user',
-        password || 'shared-password',
-        databaseName || `db-${tenantName}`
-      );
+      let dbConnectionString, dbUsername, dbPassword, dbName;
 
-      const dbUsername = username || 'shared-user';
-      const dbPassword = password || 'shared-password';
-      const dbName = databaseName || `db-${tenantName}`;
+      // If databaseKey is provided, look up the credentials from config
+      if (databaseKey) {
+        const dbConfig = getDatabaseConfig(databaseKey);
+        if (!dbConfig) {
+          return res.status(400).json({
+            error: 'Invalid database key',
+            message: `Database '${databaseKey}' not found in configuration`
+          });
+        }
+        dbConnectionString = dbConfig.connectionString;
+        dbUsername = dbConfig.username;
+        dbPassword = dbConfig.password;
+        dbName = dbConfig.databaseName;
+      } else if (connectionString) {
+        // Use provided custom credentials
+        dbConnectionString = connectionString;
+        dbUsername = username || 'custom-user';
+        dbPassword = password || 'custom-password';
+        dbName = databaseName || `db-${tenantName}`;
+      } else {
+        return res.status(400).json({
+          error: 'Missing database configuration',
+          message: 'Either databaseKey or connectionString must be provided'
+        });
+      }
 
-      // Store credentials in Kubernetes Secret (without calling Atlas API)
+      // Store credentials in Kubernetes Secret
       await k8sService.createDatabaseSecret(
         tenantName,
         secretName,
