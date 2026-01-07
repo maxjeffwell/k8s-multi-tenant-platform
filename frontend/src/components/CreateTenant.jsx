@@ -22,11 +22,6 @@ const APP_TYPES = {
     dbKey: 'postgres-neon',
     dbLabel: 'PostgreSQL (Neon DB)'
   },
-  'firebook': {
-    label: 'FireBook',
-    dbKey: 'firebook-db',
-    dbLabel: 'Firebase Realtime DB (Configured in App)'
-  },
   'intervalai': {
     label: 'IntervalAI',
     dbKey: 'mongodb-intervalai',

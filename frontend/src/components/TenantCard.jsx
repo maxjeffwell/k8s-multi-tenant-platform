@@ -7,7 +7,6 @@ const APP_DB_MAPPING = {
   'educationelly-graphql': 'mongodb-educationelly-graphql',
   'code-talk': 'postgres-codetalk',
   'bookmarked': 'postgres-neon',
-  'firebook': 'firebook-db',
   'intervalai': 'mongodb-intervalai'
 };
 

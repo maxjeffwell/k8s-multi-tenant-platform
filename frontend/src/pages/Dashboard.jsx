@@ -46,7 +46,7 @@ function Dashboard() {
       <header className="dashboard-header">
         <h1>Multi-Tenant Hosting</h1>
         <p>Manage isolated instances of educationELLy, educationELLy-GraphQL, Code Talk,
-          FireBook, Bookmarked, and IntervalAI
+          Bookmarked, and IntervalAI
         </p>
       </header>
 
