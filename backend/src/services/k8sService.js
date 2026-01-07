@@ -269,6 +269,15 @@ class K8sService {
           break;
         case 'mongodb-intervalai':
           prefix = 'MONGODB_INTERVALAI';
+          // IntervalAI uses Triton Inference Server for ML predictions
+          extraData = {
+            'USE_TRITON': 'true',
+            'TRITON_URL': 'http://triton-service.default.svc.cluster.local:8000',
+            'TRITON_MODEL_NAME': 'interval_ai',
+            'TFJS_BACKEND': 'node',
+            'USE_OPENVINO': 'false',
+            'API_ONLY': 'true'
+          };
           break;
         case 'postgres-codetalk':
           prefix = 'POSTGRES_CODETALK';
