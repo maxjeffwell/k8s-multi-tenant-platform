@@ -200,7 +200,7 @@ class TenantController {
             deployConfig.env.push(
               {
                 name: 'DATABASE_URL',
-                value: 'postgres://postgres:codetalk_postgres123@postgresql-codetalk.default.svc.cluster.local:5432/codetalk'
+                value: 'postgres://codetalk_user:codetalk_postgres123@postgresql-codetalk.default.svc.cluster.local:5432/codetalk'
               },
               {
                 name: 'JWT_SECRET',
