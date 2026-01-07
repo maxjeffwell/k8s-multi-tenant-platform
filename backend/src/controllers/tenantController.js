@@ -193,10 +193,18 @@ class TenantController {
 
           // SPECIAL CONFIG FOR CODE-TALK (Needs Postgres + Redis - using local pods)
           if (appType === 'code-talk') {
+            // Generate a secure JWT secret for this tenant
+            const crypto = await import('crypto');
+            const jwtSecret = crypto.randomBytes(32).toString('hex');
+
             deployConfig.env.push(
               {
                 name: 'DATABASE_URL',
                 value: 'postgres://postgres:codetalk_postgres123@postgresql-codetalk.default.svc.cluster.local:5432/codetalk'
+              },
+              {
+                name: 'JWT_SECRET',
+                value: jwtSecret
               },
               {
                 name: 'REDIS_URL',
