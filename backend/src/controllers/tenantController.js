@@ -44,7 +44,7 @@ const DEFAULT_APP_CONFIGS = {
   },
   'firebook': {
     serverImage: null, // Firebase app, no backend server
-    clientImage: 'maxjeffwell/firebook-client:latest',
+    clientImage: 'maxjeffwell/firebook:latest',
     serverPort: null,
     clientPort: 80, // Nginx default
     dbKey: 'firebook-db'

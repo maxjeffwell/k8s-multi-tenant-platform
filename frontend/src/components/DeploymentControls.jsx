@@ -13,7 +13,7 @@ const APP_CONFIGS = {
   },
   'educationelly-graphql': {
     label: 'educationELLy (GraphQL)',
-    serverImage: 'maxjeffwell/educationelly-graphql-api:latest',
+    serverImage: 'maxjeffwell/educationelly-graphql-server:latest',
     clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
     serverPort: 8000,
     clientPort: 3000,
@@ -31,8 +31,8 @@ const APP_CONFIGS = {
   },
   'bookmarked': {
     label: 'Bookmarked',
-    serverImage: 'maxjeffwell/bookmarked-api:latest',
-    clientImage: 'maxjeffwell/bookmarked-client:latest',
+    serverImage: 'maxjeffwell/bookmarks-react-hooks-server:latest',
+    clientImage: 'maxjeffwell/bookmarks-react-hooks-client:latest',
     serverPort: 8000,
     clientPort: 3000,
     dbKey: 'postgres-neon',
@@ -40,8 +40,8 @@ const APP_CONFIGS = {
   },
   'firebook': {
     label: 'Firebook',
-    serverImage: 'maxjeffwell/firebook-api:latest',
-    clientImage: 'maxjeffwell/firebook-client:latest',
+    serverImage: null,
+    clientImage: 'maxjeffwell/firebook:latest',
     serverPort: 8000,
     clientPort: 3000,
     dbKey: 'firebook-db',
@@ -49,8 +49,8 @@ const APP_CONFIGS = {
   },
   'intervalai': {
     label: 'IntervalAI',
-    serverImage: 'maxjeffwell/intervalai-api:latest',
-    clientImage: 'maxjeffwell/intervalai-client:latest',
+    serverImage: 'maxjeffwell/spaced-repetition-capstone-server:latest',
+    clientImage: 'maxjeffwell/spaced-repetition-capstone-client:latest',
     serverPort: 8000,
     clientPort: 3000,
     dbKey: 'mongodb-intervalai',
