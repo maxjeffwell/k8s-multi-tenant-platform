@@ -400,6 +400,15 @@ class K8sService {
 
         // Create service for server
         await this.createService(validatedNamespace, `${appPrefix}-server`, finalServerPort);
+
+        // IntervalAI client nginx expects 'spaced-repetition-server' - create alias
+        if (appType === 'intervalai') {
+          await this.createExternalNameService(
+            validatedNamespace,
+            'spaced-repetition-server',
+            `${appPrefix}-server.${validatedNamespace}.svc.cluster.local`
+          );
+        }
       }
 
       // Deploy Client Frontend (doesn't need database access)
@@ -580,6 +589,39 @@ class K8sService {
       await createOrUpdate(
         () => this.coreApi.createNamespacedService({ namespace: validatedNamespace, body: service }),
         () => this.coreApi.replaceNamespacedService({ name: validatedAppName, namespace: validatedNamespace, body: service }),
+        'service'
+      );
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Create ExternalName service (alias to another service)
+  async createExternalNameService(namespace, serviceName, externalName) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedServiceName = validateResourceName(serviceName, 'service');
+
+    const service = {
+      apiVersion: 'v1',
+      kind: 'Service',
+      metadata: {
+        name: validatedServiceName,
+        namespace: validatedNamespace,
+        labels: {
+          app: validatedServiceName,
+          portfolio: 'true'
+        }
+      },
+      spec: {
+        type: 'ExternalName',
+        externalName: externalName
+      }
+    };
+
+    try {
+      await createOrUpdate(
+        () => this.coreApi.createNamespacedService({ namespace: validatedNamespace, body: service }),
+        () => this.coreApi.replaceNamespacedService({ name: validatedServiceName, namespace: validatedNamespace, body: service }),
         'service'
       );
     } catch (error) {
