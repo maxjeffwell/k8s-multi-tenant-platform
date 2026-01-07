@@ -4,18 +4,18 @@ import { tenantApi } from '../services/api';
 const APP_TYPES = {
   'educationelly': {
     label: 'Educationelly',
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'mongodb-educationelly',
+    dbLabel: 'MongoDB Educationelly (Local)'
   },
   'educationelly-graphql': {
     label: 'Educationelly GraphQL',
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'mongodb-educationelly-graphql',
+    dbLabel: 'MongoDB Educationelly GraphQL (Local)'
   },
   'code-talk': {
     label: 'Code Talk',
-    dbKey: 'postgres-aws',
-    dbLabel: 'PostgreSQL (AWS RDS)'
+    dbKey: 'postgres-codetalk',
+    dbLabel: 'PostgreSQL + Redis (Local)'
   },
   'bookmarked': {
     label: 'Bookmarked',
@@ -29,8 +29,8 @@ const APP_TYPES = {
   },
   'intervalai': {
     label: 'IntervalAI',
-    dbKey: 'spaced-repetition-db',
-    dbLabel: 'Spaced Repetition DB (MongoDB Atlas)'
+    dbKey: 'mongodb-intervalai',
+    dbLabel: 'MongoDB IntervalAI (Local)'
   }
 };
 
@@ -62,7 +62,7 @@ function CreateTenant({ onSuccess, onCancel }) {
       // Add database configuration if enabled
       if (configureDatabase) {
         // Automatically set the correct database key for the selected app
-        const dbKey = APP_TYPES[appType]?.dbKey || 'educationelly-db';
+        const dbKey = APP_TYPES[appType]?.dbKey || 'mongodb-educationelly-graphql';
         requestBody.database = { databaseKey: dbKey };
       }
 

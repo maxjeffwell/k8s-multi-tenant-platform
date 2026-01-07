@@ -3,12 +3,12 @@ import { tenantApi, databaseApi } from '../services/api';
 import DeploymentControls from './DeploymentControls';
 
 const APP_DB_MAPPING = {
-  'educationelly': 'educationelly-db',
-  'educationelly-graphql': 'educationelly-db',
-  'code-talk': 'postgres-aws',
+  'educationelly': 'mongodb-educationelly',
+  'educationelly-graphql': 'mongodb-educationelly-graphql',
+  'code-talk': 'postgres-codetalk',
   'bookmarked': 'postgres-neon',
   'firebook': 'firebook-db',
-  'intervalai': 'spaced-repetition-db'
+  'intervalai': 'mongodb-intervalai'
 };
 
 function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {

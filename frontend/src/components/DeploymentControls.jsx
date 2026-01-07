@@ -8,8 +8,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/educationelly-client:latest',
     serverPort: 8080,
     clientPort: 5000,
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'mongodb-educationelly',
+    dbLabel: 'MongoDB Educationelly (Local)'
   },
   'educationelly-graphql': {
     label: 'educationELLy (GraphQL)',
@@ -17,8 +17,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbKey: 'educationelly-db',
-    dbLabel: 'Educationelly DB (MongoDB Atlas)'
+    dbKey: 'mongodb-educationelly-graphql',
+    dbLabel: 'MongoDB Educationelly GraphQL (Local)'
   },
   'code-talk': {
     label: 'Code Talk',
@@ -26,8 +26,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/code-talk-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbKey: 'postgres-aws',
-    dbLabel: 'PostgreSQL (AWS RDS)'
+    dbKey: 'postgres-codetalk',
+    dbLabel: 'PostgreSQL + Redis (Local)'
   },
   'bookmarked': {
     label: 'Bookmarked',
@@ -53,8 +53,8 @@ const APP_CONFIGS = {
     clientImage: 'maxjeffwell/intervalai-client:latest',
     serverPort: 8000,
     clientPort: 3000,
-    dbKey: 'spaced-repetition-db',
-    dbLabel: 'Spaced Repetition DB (MongoDB Atlas)'
+    dbKey: 'mongodb-intervalai',
+    dbLabel: 'MongoDB IntervalAI (Local)'
   }
 };
 
@@ -62,7 +62,7 @@ function DeploymentControls({ tenantName, onDeploymentCreated, lockedAppType }) 
   const [appType, setAppType] = useState(lockedAppType || 'educationelly-graphql');
   // Initialize dbKey based on initial appType
   const initialConfig = APP_CONFIGS[lockedAppType || 'educationelly-graphql'];
-  const [databaseKey, setDatabaseKey] = useState(initialConfig ? initialConfig.dbKey : 'educationelly-db');
+  const [databaseKey, setDatabaseKey] = useState(initialConfig ? initialConfig.dbKey : 'mongodb-educationelly-graphql');
   
   const [replicas, setReplicas] = useState(1);
   const [serverImage, setServerImage] = useState(initialConfig ? initialConfig.serverImage : '');
