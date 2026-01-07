@@ -7,7 +7,7 @@ const APP_CONFIGS = {
     serverImage: 'maxjeffwell/educationelly-server:latest',
     clientImage: 'maxjeffwell/educationelly-client:latest',
     serverPort: 8080,
-    clientPort: 5000,
+    clientPort: 3000,
     dbKey: 'mongodb-educationelly',
     dbLabel: 'MongoDB Educationelly (Local)'
   },
@@ -16,7 +16,7 @@ const APP_CONFIGS = {
     serverImage: 'maxjeffwell/educationelly-graphql-server:latest',
     clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
     serverPort: 8000,
-    clientPort: 3000,
+    clientPort: 80,
     dbKey: 'mongodb-educationelly-graphql',
     dbLabel: 'MongoDB Educationelly GraphQL (Local)'
   },
@@ -25,7 +25,7 @@ const APP_CONFIGS = {
     serverImage: 'maxjeffwell/code-talk-graphql-server:latest',
     clientImage: 'maxjeffwell/code-talk-graphql-client:latest',
     serverPort: 8000,
-    clientPort: 3000,
+    clientPort: 5000,
     dbKey: 'postgres-codetalk',
     dbLabel: 'PostgreSQL + Redis (Local)'
   },
@@ -33,8 +33,8 @@ const APP_CONFIGS = {
     label: 'Bookmarked',
     serverImage: 'maxjeffwell/bookmarks-react-hooks-server:latest',
     clientImage: 'maxjeffwell/bookmarks-react-hooks-client:latest',
-    serverPort: 8000,
-    clientPort: 3000,
+    serverPort: 3001,
+    clientPort: 80,
     dbKey: 'postgres-neon',
     dbLabel: 'PostgreSQL (Neon DB)'
   },
@@ -42,8 +42,8 @@ const APP_CONFIGS = {
     label: 'Firebook',
     serverImage: null,
     clientImage: 'maxjeffwell/firebook:latest',
-    serverPort: 8000,
-    clientPort: 3000,
+    serverPort: null,
+    clientPort: 80,
     dbKey: 'firebook-db',
     dbLabel: 'Firebase Realtime DB (Configured in App)'
   },
@@ -51,8 +51,8 @@ const APP_CONFIGS = {
     label: 'IntervalAI',
     serverImage: 'maxjeffwell/spaced-repetition-capstone-server:latest',
     clientImage: 'maxjeffwell/spaced-repetition-capstone-client:latest',
-    serverPort: 8000,
-    clientPort: 3000,
+    serverPort: 8080,
+    clientPort: 80,
     dbKey: 'mongodb-intervalai',
     dbLabel: 'MongoDB IntervalAI (Local)'
   }
