@@ -49,7 +49,7 @@ metadata:
     component: backend
     portfolio: "true"
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: tenantflow
@@ -235,7 +235,7 @@ metadata:
     component: frontend
     portfolio: "true"
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: tenantflow
