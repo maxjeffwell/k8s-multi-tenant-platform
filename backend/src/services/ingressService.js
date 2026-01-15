@@ -597,6 +597,64 @@ class IngressService {
   }
 
   /**
+   * Wait for ingress to be ready (has address assigned)
+   * @param {string} tenantName - Tenant namespace
+   * @param {string} ingressName - Name of the ingress
+   * @param {number} timeoutMs - Timeout in milliseconds (default: 120000 = 2 minutes)
+   * @param {number} pollIntervalMs - Polling interval (default: 5000 = 5 seconds)
+   * @returns {Promise<Object>} Ingress readiness status
+   */
+  async waitForIngressReady(tenantName, ingressName, timeoutMs = 120000, pollIntervalMs = 5000) {
+    const validatedTenant = validateResourceName(tenantName, 'namespace');
+    const validatedIngress = validateResourceName(ingressName, 'ingress');
+    const startTime = Date.now();
+
+    this.log.info({ ingress: validatedIngress, namespace: validatedTenant, timeoutMs }, 'Waiting for ingress to be ready');
+
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const status = await this.checkIngressReady(validatedTenant, validatedIngress);
+
+        // Ingress is ready when it has an IP or hostname assigned
+        if (status.ready || status.ip) {
+          this.log.info({
+            ingress: validatedIngress,
+            ip: status.ip,
+            host: status.host,
+            elapsed: Date.now() - startTime
+          }, 'Ingress is ready');
+
+          return {
+            ready: true,
+            ingress: validatedIngress,
+            host: status.host,
+            url: status.url,
+            ip: status.ip
+          };
+        }
+
+        this.log.debug({
+          ingress: validatedIngress,
+          elapsed: Date.now() - startTime
+        }, 'Ingress not ready, waiting...');
+
+      } catch (error) {
+        this.log.warn({ err: error, ingress: validatedIngress }, 'Error checking ingress status');
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+
+    // Return not ready rather than throwing - ingress might work via DNS anyway
+    this.log.warn({ ingress: validatedIngress, timeoutMs }, 'Ingress readiness timeout - may still be functional');
+    return {
+      ready: false,
+      ingress: validatedIngress,
+      warning: `Ingress IP not assigned after ${timeoutMs}ms - may still work via DNS`
+    };
+  }
+
+  /**
    * Check if ingress controller is available
    * @returns {Promise<boolean>}
    */

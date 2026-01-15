@@ -1,4 +1,4 @@
-import { k8sApi, k8sAppsApi, k8sNetworkingApi } from '../config/k8s.js';
+import { k8sApi, k8sAppsApi, k8sNetworkingApi, k8sCustomObjectsApi } from '../config/k8s.js';
 import * as k8s from '@kubernetes/client-node';
 import { createLogger } from '../utils/logger.js';
 
@@ -122,12 +122,14 @@ class K8sService {
    * @param {Object} deps.coreApi - Kubernetes CoreV1Api client
    * @param {Object} deps.appsApi - Kubernetes AppsV1Api client
    * @param {Object} deps.networkingApi - Kubernetes NetworkingV1Api client
+   * @param {Object} deps.customObjectsApi - Kubernetes CustomObjectsApi client
    * @param {Object} deps.logger - Logger instance
    */
   constructor(deps = {}) {
     this.coreApi = deps.coreApi || k8sApi;
     this.appsApi = deps.appsApi || k8sAppsApi;
     this.networkingApi = deps.networkingApi || k8sNetworkingApi;
+    this.customObjectsApi = deps.customObjectsApi || k8sCustomObjectsApi;
     this.log = deps.logger || defaultLog;
   }
 
@@ -241,6 +243,430 @@ class K8sService {
     } catch (error) {
       throw error;
     }
+  }
+
+  /**
+   * Run pre-flight checks before tenant creation
+   * Validates: ingress controller availability, database pods, TLS secret, shared credentials
+   * @param {Object} options - Pre-flight options
+   * @param {string} options.databaseKey - Database key to validate (optional)
+   * @param {string} options.ingressClass - Ingress class to check (default: 'traefik')
+   * @returns {Promise<Object>} Pre-flight check results
+   */
+  async runPreFlightChecks(options = {}) {
+    const results = {
+      passed: true,
+      checks: [],
+      errors: []
+    };
+
+    // 1. Check ingress controller
+    try {
+      const ingressClass = options.ingressClass || process.env.INGRESS_CLASS || 'traefik';
+      const classResponse = await this.networkingApi.listIngressClass();
+      const classes = extractBody(classResponse)?.items || [];
+      const hasIngressClass = classes.some(ic => ic.metadata.name === ingressClass);
+
+      if (hasIngressClass) {
+        results.checks.push({ name: 'ingressController', status: 'passed', message: `Ingress class '${ingressClass}' available` });
+      } else {
+        results.passed = false;
+        results.checks.push({ name: 'ingressController', status: 'failed', message: `Ingress class '${ingressClass}' not found` });
+        results.errors.push(`Ingress controller with class '${ingressClass}' not available`);
+      }
+    } catch (error) {
+      results.passed = false;
+      results.checks.push({ name: 'ingressController', status: 'error', message: error.message });
+      results.errors.push(`Failed to check ingress controller: ${error.message}`);
+    }
+
+    // 2. Check database pods (if databaseKey provided)
+    if (options.databaseKey) {
+      try {
+        let labelSelector = '';
+        let skipCheck = false;
+
+        switch (options.databaseKey) {
+          case 'mongodb-educationelly':
+            labelSelector = 'app=mongodb-educationelly';
+            break;
+          case 'mongodb-educationelly-graphql':
+            labelSelector = 'app=mongodb-educationelly-graphql';
+            break;
+          case 'mongodb-intervalai':
+            labelSelector = 'app=mongodb-intervalai';
+            break;
+          case 'postgres-codetalk':
+            labelSelector = 'app=postgresql-codetalk';
+            break;
+          case 'postgres-neon':
+            // Neon is external, skip pod check
+            results.checks.push({ name: 'databasePods', status: 'skipped', message: 'Neon is external database' });
+            skipCheck = true;
+            break;
+          case 'firebook-db':
+            // Firebase is external, skip pod check
+            results.checks.push({ name: 'databasePods', status: 'skipped', message: 'Firebase is external database' });
+            skipCheck = true;
+            break;
+          default:
+            results.checks.push({ name: 'databasePods', status: 'skipped', message: `Unknown database key: ${options.databaseKey}` });
+            skipCheck = true;
+        }
+
+        if (!skipCheck && labelSelector) {
+          const podsResponse = await this.coreApi.listNamespacedPod({ namespace: 'default', labelSelector });
+          const pods = extractBody(podsResponse)?.items || [];
+          const runningPods = pods.filter(p => p.status?.phase === 'Running');
+
+          if (runningPods.length > 0) {
+            results.checks.push({ name: 'databasePods', status: 'passed', message: `${runningPods.length} database pod(s) running` });
+          } else {
+            results.passed = false;
+            results.checks.push({ name: 'databasePods', status: 'failed', message: 'No running database pods found' });
+            results.errors.push(`No running database pods for ${options.databaseKey}`);
+          }
+        }
+      } catch (error) {
+        results.passed = false;
+        results.checks.push({ name: 'databasePods', status: 'error', message: error.message });
+        results.errors.push(`Failed to check database pods: ${error.message}`);
+      }
+    }
+
+    // 3. Check TLS secret exists (or can be created)
+    try {
+      const tlsSecret = await this.getSecret('default', 'tenants-wildcard-tls');
+      if (tlsSecret && tlsSecret.data?.['tls.crt']) {
+        results.checks.push({ name: 'tlsSecret', status: 'passed', message: 'Wildcard TLS secret available' });
+      } else {
+        results.checks.push({ name: 'tlsSecret', status: 'warning', message: 'TLS secret not found, will attempt to provision via cert-manager' });
+      }
+    } catch (error) {
+      results.checks.push({ name: 'tlsSecret', status: 'warning', message: 'TLS secret check failed, will attempt provisioning' });
+    }
+
+    // 4. Check shared credentials secret
+    try {
+      const credSecret = await this.getSecret('default', 'production-db-credentials');
+      if (credSecret) {
+        results.checks.push({ name: 'sharedCredentials', status: 'passed', message: 'Shared database credentials available' });
+      } else {
+        results.passed = false;
+        results.checks.push({ name: 'sharedCredentials', status: 'failed', message: 'Shared credentials secret not found' });
+        results.errors.push('production-db-credentials secret not found in default namespace');
+      }
+    } catch (error) {
+      results.passed = false;
+      results.checks.push({ name: 'sharedCredentials', status: 'error', message: error.message });
+      results.errors.push(`Failed to check shared credentials: ${error.message}`);
+    }
+
+    this.log.info({ passed: results.passed, checkCount: results.checks.length }, 'Pre-flight checks completed');
+    return results;
+  }
+
+  /**
+   * Ensure wildcard certificate exists via cert-manager
+   * Creates a Certificate resource in default namespace if TLS secret doesn't exist
+   * @param {string} secretName - Name of the TLS secret (default: 'tenants-wildcard-tls')
+   * @param {string} domain - Wildcard domain (default: '*.tenants.el-jefe.me')
+   * @param {string} issuerName - cert-manager ClusterIssuer name (default: 'letsencrypt-prod')
+   * @returns {Promise<Object>} Certificate creation result
+   */
+  async ensureWildcardCertificate(secretName = 'tenants-wildcard-tls', domain = '*.tenants.el-jefe.me', issuerName = 'letsencrypt-prod') {
+    const namespace = 'default';
+
+    // Check if secret already exists
+    const existingSecret = await this.getSecret(namespace, secretName);
+    if (existingSecret && existingSecret.data?.['tls.crt']) {
+      this.log.info({ secretName, namespace }, 'Wildcard TLS secret already exists');
+      return { exists: true, secretName };
+    }
+
+    // Create Certificate resource for cert-manager
+    const certificate = {
+      apiVersion: 'cert-manager.io/v1',
+      kind: 'Certificate',
+      metadata: {
+        name: secretName,
+        namespace: namespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'multi-tenant-platform'
+        }
+      },
+      spec: {
+        secretName: secretName,
+        issuerRef: {
+          name: issuerName,
+          kind: 'ClusterIssuer'
+        },
+        commonName: domain,
+        dnsNames: [
+          domain,
+          domain.replace('*.', '')  // Also include base domain
+        ]
+      }
+    };
+
+    // Use CustomObjectsApi to create cert-manager Certificate
+    try {
+      await this.customObjectsApi.createNamespacedCustomObject({
+        group: 'cert-manager.io',
+        version: 'v1',
+        namespace: namespace,
+        plural: 'certificates',
+        body: certificate
+      });
+      this.log.info({ secretName, domain, issuerName }, 'Wildcard certificate created');
+      return { created: true, secretName, certificate };
+    } catch (error) {
+      if (isAlreadyExistsError(error)) {
+        this.log.info({ secretName }, 'Certificate already exists, waiting for secret');
+        return { exists: true, secretName };
+      }
+      throw new Error(`Failed to create wildcard certificate: ${error.message}`);
+    }
+  }
+
+  /**
+   * Wait for TLS secret to be ready (cert-manager provisioning)
+   * @param {string} namespace - Namespace where secret should exist
+   * @param {string} secretName - Name of the TLS secret
+   * @param {number} timeoutMs - Timeout in milliseconds (default: 120000 = 2 minutes)
+   * @returns {Promise<boolean>} True if secret is ready
+   */
+  async waitForTLSSecret(namespace, secretName, timeoutMs = 120000) {
+    const startTime = Date.now();
+    const pollInterval = 5000; // 5 seconds
+
+    while (Date.now() - startTime < timeoutMs) {
+      const secret = await this.getSecret(namespace, secretName);
+      if (secret && secret.data && secret.data['tls.crt'] && secret.data['tls.key']) {
+        this.log.info({ secretName, namespace }, 'TLS secret is ready');
+        return true;
+      }
+
+      this.log.debug({ secretName, namespace, elapsed: Date.now() - startTime }, 'Waiting for TLS secret...');
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+
+    throw new Error(`TLS secret ${secretName} not ready after ${timeoutMs}ms`);
+  }
+
+  /**
+   * Create network policy for tenant isolation
+   * @param {string} namespace - Tenant namespace
+   * @param {Object} options - Network policy options
+   * @param {string} options.ingressNamespace - Namespace of ingress controller (default: 'kube-system')
+   * @returns {Promise<Object>} Created network policy
+   */
+  async createNetworkPolicy(namespace, options = {}) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const policyName = 'tenant-isolation';
+    const ingressNamespace = options.ingressNamespace || 'kube-system';
+
+    const networkPolicy = {
+      apiVersion: 'networking.k8s.io/v1',
+      kind: 'NetworkPolicy',
+      metadata: {
+        name: policyName,
+        namespace: validatedNamespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+          'tenant': validatedNamespace,
+          'portfolio': 'true'
+        }
+      },
+      spec: {
+        podSelector: {},  // Applies to all pods in namespace
+        policyTypes: ['Ingress', 'Egress'],
+        ingress: [
+          // Allow ingress from same namespace (pod-to-pod communication)
+          {
+            from: [{ podSelector: {} }]
+          },
+          // Allow ingress from ingress controller (Traefik in kube-system)
+          {
+            from: [{
+              namespaceSelector: {
+                matchLabels: {
+                  'kubernetes.io/metadata.name': ingressNamespace
+                }
+              }
+            }]
+          },
+          // Allow ingress from default namespace (for management)
+          {
+            from: [{
+              namespaceSelector: {
+                matchLabels: {
+                  'kubernetes.io/metadata.name': 'default'
+                }
+              }
+            }]
+          }
+        ],
+        egress: [
+          // Allow DNS resolution (kube-system)
+          {
+            to: [{
+              namespaceSelector: {
+                matchLabels: {
+                  'kubernetes.io/metadata.name': 'kube-system'
+                }
+              }
+            }],
+            ports: [
+              { protocol: 'UDP', port: 53 },
+              { protocol: 'TCP', port: 53 }
+            ]
+          },
+          // Allow egress to same namespace
+          {
+            to: [{ podSelector: {} }]
+          },
+          // Allow egress to default namespace (for shared databases)
+          {
+            to: [{
+              namespaceSelector: {
+                matchLabels: {
+                  'kubernetes.io/metadata.name': 'default'
+                }
+              }
+            }],
+            ports: [
+              { protocol: 'TCP', port: 27017 },  // MongoDB
+              { protocol: 'TCP', port: 5432 },   // PostgreSQL
+              { protocol: 'TCP', port: 6379 }    // Redis
+            ]
+          },
+          // Allow external HTTPS (for Neon, Firebase, external APIs)
+          {
+            to: [{ ipBlock: { cidr: '0.0.0.0/0', except: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'] } }],
+            ports: [
+              { protocol: 'TCP', port: 443 },
+              { protocol: 'TCP', port: 80 }
+            ]
+          }
+        ]
+      }
+    };
+
+    try {
+      return await createOrUpdate(
+        () => this.networkingApi.createNamespacedNetworkPolicy({ namespace: validatedNamespace, body: networkPolicy }),
+        () => this.networkingApi.replaceNamespacedNetworkPolicy({ name: policyName, namespace: validatedNamespace, body: networkPolicy }),
+        'network policy'
+      );
+    } catch (error) {
+      throw new Error(`Failed to create network policy: ${error.message}`);
+    }
+  }
+
+  /**
+   * Wait for a deployment to be fully ready
+   * @param {string} namespace - Kubernetes namespace
+   * @param {string} deploymentName - Name of the deployment
+   * @param {number} timeoutMs - Timeout in milliseconds (default: 300000 = 5 minutes)
+   * @param {number} pollIntervalMs - Polling interval (default: 5000 = 5 seconds)
+   * @returns {Promise<Object>} Deployment status
+   */
+  async waitForDeploymentReady(namespace, deploymentName, timeoutMs = 300000, pollIntervalMs = 5000) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedDeployment = validateResourceName(deploymentName, 'deployment');
+    const startTime = Date.now();
+
+    this.log.info({ deployment: validatedDeployment, namespace: validatedNamespace, timeoutMs }, 'Waiting for deployment to be ready');
+
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const response = await this.appsApi.readNamespacedDeployment({
+          name: validatedDeployment,
+          namespace: validatedNamespace
+        });
+        const deployment = extractBody(response);
+
+        const desiredReplicas = deployment.spec?.replicas || 1;
+        const readyReplicas = deployment.status?.readyReplicas || 0;
+        const availableReplicas = deployment.status?.availableReplicas || 0;
+        const updatedReplicas = deployment.status?.updatedReplicas || 0;
+
+        // Check all conditions for readiness
+        const conditions = deployment.status?.conditions || [];
+        const availableCondition = conditions.find(c => c.type === 'Available');
+        const progressingCondition = conditions.find(c => c.type === 'Progressing');
+
+        const isAvailable = availableCondition?.status === 'True';
+
+        // Deployment is ready when all replicas are ready and available
+        if (readyReplicas >= desiredReplicas &&
+            availableReplicas >= desiredReplicas &&
+            updatedReplicas >= desiredReplicas &&
+            isAvailable) {
+          this.log.info({
+            deployment: validatedDeployment,
+            readyReplicas,
+            desiredReplicas,
+            elapsed: Date.now() - startTime
+          }, 'Deployment is ready');
+
+          return {
+            ready: true,
+            deployment: validatedDeployment,
+            replicas: { desired: desiredReplicas, ready: readyReplicas, available: availableReplicas }
+          };
+        }
+
+        // Check for failure conditions
+        if (progressingCondition?.reason === 'ProgressDeadlineExceeded') {
+          throw new Error(`Deployment ${validatedDeployment} exceeded progress deadline`);
+        }
+
+        this.log.debug({
+          deployment: validatedDeployment,
+          readyReplicas,
+          desiredReplicas,
+          elapsed: Date.now() - startTime
+        }, 'Deployment not ready, waiting...');
+
+      } catch (error) {
+        if (!isNotFoundError(error)) {
+          this.log.warn({ err: error, deployment: validatedDeployment }, 'Error checking deployment status');
+        }
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+
+    throw new Error(`Deployment ${validatedDeployment} not ready after ${timeoutMs}ms`);
+  }
+
+  /**
+   * Wait for all deployments in a namespace to be ready
+   * @param {string} namespace - Kubernetes namespace
+   * @param {number} timeoutMs - Timeout in milliseconds
+   * @returns {Promise<Object>} Status of all deployments
+   */
+  async waitForAllDeploymentsReady(namespace, timeoutMs = 300000) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+
+    const response = await this.appsApi.listNamespacedDeployment({ namespace: validatedNamespace });
+    const deployments = extractBody(response)?.items || [];
+
+    if (deployments.length === 0) {
+      return { ready: true, deployments: [] };
+    }
+
+    const results = await Promise.all(
+      deployments.map(d =>
+        this.waitForDeploymentReady(validatedNamespace, d.metadata.name, timeoutMs)
+          .catch(err => ({ ready: false, deployment: d.metadata.name, error: err.message }))
+      )
+    );
+
+    const allReady = results.every(r => r.ready);
+    return { ready: allReady, deployments: results };
   }
 
   // Get credentials from the shared platform secret
@@ -472,6 +898,10 @@ class K8sService {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
     const validatedAppName = validateResourceName(appName, 'deployment');
 
+    // Determine probe path based on app type (clients serve static files, servers have /health)
+    const isClient = validatedAppName.includes('client');
+    const probePath = isClient ? '/' : '/health';
+
     const containerSpec = {
       name: validatedAppName,
       image: image,
@@ -490,6 +920,42 @@ class K8sService {
           memory: '512Mi',
           cpu: '500m'
         }
+      },
+      // Liveness probe - restarts container if it fails
+      livenessProbe: {
+        httpGet: {
+          path: probePath,
+          port: port
+        },
+        initialDelaySeconds: 15,
+        periodSeconds: 20,
+        timeoutSeconds: 5,
+        failureThreshold: 3,
+        successThreshold: 1
+      },
+      // Readiness probe - removes from service if not ready
+      readinessProbe: {
+        httpGet: {
+          path: probePath,
+          port: port
+        },
+        initialDelaySeconds: 5,
+        periodSeconds: 10,
+        timeoutSeconds: 3,
+        failureThreshold: 3,
+        successThreshold: 1
+      },
+      // Startup probe - allows slow-starting containers
+      startupProbe: {
+        httpGet: {
+          path: probePath,
+          port: port
+        },
+        initialDelaySeconds: 0,
+        periodSeconds: 5,
+        timeoutSeconds: 3,
+        failureThreshold: 30,  // 30 * 5 = 150 seconds max startup time
+        successThreshold: 1
       }
     };
 

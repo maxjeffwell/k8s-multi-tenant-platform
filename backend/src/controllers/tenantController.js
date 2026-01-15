@@ -59,39 +59,78 @@ const DEFAULT_APP_CONFIGS = {
 };
 
 class TenantController {
-  // Create a new tenant
+  // Create a new tenant with full automation, pre-flight checks, and rollback
   async createTenant(req, res) {
+    let namespaceCreated = false;
+    let tenantName = null;
+
     try {
       // Validate request body using Zod schema
       const validatedData = validateBody(createTenantSchema, req.body);
-      const { tenantName, resourceQuota, database, appType } = validatedData;
+      const { tenantName: inputTenantName, resourceQuota, database, appType } = validatedData;
+      tenantName = inputTenantName;
       let response = { tenant: tenantName };
 
       log.info({ tenantName, hasQuota: !!resourceQuota, hasDatabase: !!database, appType }, 'Creating tenant');
 
-      // Create namespace
-      const namespace = await k8sService.createNamespace(tenantName, resourceQuota, appType);
+      // ========== STEP 0: Pre-flight checks ==========
+      // Determine database key for pre-flight validation
+      let databaseKey = null;
+      if (appType && DEFAULT_APP_CONFIGS[appType]?.dbKey) {
+        databaseKey = DEFAULT_APP_CONFIGS[appType].dbKey;
+      } else if (database && database.databaseKey) {
+        databaseKey = database.databaseKey;
+      }
 
-      // Upgrade tenant string to full object
+      const preFlightResults = await k8sService.runPreFlightChecks({
+        databaseKey,
+        ingressClass: process.env.INGRESS_CLASS || 'traefik'
+      });
+
+      if (!preFlightResults.passed) {
+        log.error({ tenantName, errors: preFlightResults.errors }, 'Pre-flight checks failed');
+        return res.status(400).json({
+          error: 'Pre-flight checks failed',
+          details: preFlightResults.errors,
+          checks: preFlightResults.checks
+        });
+      }
+
+      log.info({ tenantName, checks: preFlightResults.checks }, 'Pre-flight checks passed');
+      response.preFlightChecks = preFlightResults.checks;
+
+      // ========== STEP 1: Ensure TLS certificate exists ==========
+      try {
+        await k8sService.ensureWildcardCertificate();
+        // Wait briefly for cert-manager if certificate was just created
+        await k8sService.waitForTLSSecret('default', 'tenants-wildcard-tls', 60000);
+        log.debug({ tenantName }, 'TLS certificate verified');
+      } catch (tlsError) {
+        log.warn({ err: tlsError, tenantName }, 'TLS certificate provisioning warning - continuing without TLS');
+        // Non-fatal - continue with creation
+      }
+
+      // ========== STEP 2: Create namespace ==========
+      const namespace = await k8sService.createNamespace(tenantName, resourceQuota, appType);
+      namespaceCreated = true;
+
       response.tenant = {
         name: namespace.metadata.name,
         createdAt: namespace.metadata.creationTimestamp
       };
       response.message = 'Tenant created successfully';
 
-      // Determine the correct database key
-      let databaseKey = null;
-
-      // If appType dictates a specific DB, force it
-      if (appType && DEFAULT_APP_CONFIGS[appType]?.dbKey) {
-        databaseKey = DEFAULT_APP_CONFIGS[appType].dbKey;
-      }
-      // Otherwise fallback to request body
-      else if (database && database.databaseKey) {
-        databaseKey = database.databaseKey;
+      // ========== STEP 3: Create network policy ==========
+      try {
+        await k8sService.createNetworkPolicy(tenantName);
+        log.debug({ tenantName }, 'Network policy created');
+        response.networkPolicy = { created: true };
+      } catch (networkPolicyError) {
+        log.error({ err: networkPolicyError, tenantName }, 'Failed to create network policy');
+        throw networkPolicyError; // Fatal - trigger rollback
       }
 
-      // Configure database if we have a key or custom URI
+      // ========== STEP 4: Configure database ==========
       if (databaseKey) {
         response.database = {
           configured: true,
@@ -102,19 +141,16 @@ class TenantController {
         try {
           const secretName = `${tenantName}-mongodb-secret`;
 
-          // Extract credentials from URI if not provided
           let username = database.username || '';
           let password = database.password || '';
           let databaseName = database.databaseName || '';
 
-          // Try to parse from URI if not provided
           if (!username && database.mongoUri.includes('@')) {
             const match = database.mongoUri.match(/mongodb\+srv:\/\/([^:]+):([^@]+)@/);
             if (match) {
               username = match[1];
               password = match[2];
             }
-            // Extract database name from URI
             const dbMatch = database.mongoUri.match(/\.net\/([^?]+)/);
             if (dbMatch) {
               databaseName = dbMatch[1];
@@ -136,167 +172,155 @@ class TenantController {
             username: username,
             secretName: secretName
           };
-          response.message = 'Tenant and database configured successfully';
-
           log.info({ tenantName, databaseName, secretName }, 'Database configured for tenant');
         } catch (dbError) {
           log.error({ err: dbError, tenantName }, 'Database configuration failed');
-          response.database = {
-            configured: false,
-            error: 'Database configuration failed.',
-            details: dbError.message
-          };
+          throw dbError; // Fatal - trigger rollback
         }
       }
 
-      // Deploy Application if appType is provided and we have default config
+      // ========== STEP 5: Deploy Application ==========
       if (appType && DEFAULT_APP_CONFIGS[appType]) {
-        try {
-          const appConfig = DEFAULT_APP_CONFIGS[appType];
-          log.info({ tenantName, appType }, 'Deploying default application');
+        const appConfig = DEFAULT_APP_CONFIGS[appType];
+        log.info({ tenantName, appType }, 'Deploying default application');
 
-          // Generate ingress URLs that will be created
-          const ingressHost = ingressService.generateIngressHost();
-          let serverIngressUrl = null;
-          let graphqlEndpoint = null;
+        const ingressHost = ingressService.generateIngressHost();
+        let serverIngressUrl = null;
+        let graphqlEndpoint = null;
 
-          if (appConfig.serverImage) {
-            serverIngressUrl = `http://${tenantName}-api.${ingressHost}`;
-            graphqlEndpoint = `${serverIngressUrl}/graphql`;
-          }
-
-          const deployConfig = {
-            replicas: 1,
-            appType: appType,
-            serverImage: appConfig.serverImage,
-            clientImage: appConfig.clientImage,
-            serverPort: appConfig.serverPort,
-            clientPort: appConfig.clientPort,
-            env: [
-              {
-                name: 'secret', // Re-adding lowercase 'secret' just in case
-                value: crypto.randomBytes(32).toString('hex')
-              },
-              {
-                name: 'SECRET', // Standard naming for Educationelly backend
-                value: crypto.randomBytes(32).toString('hex')
-              },
-              {
-                name: 'JWT_SECRET', // Alternative standard naming
-                // Generate a 64-character random string to satisfy stricter requirements
-                value: crypto.randomBytes(32).toString('hex')
-              }
-            ],
-            graphqlEndpoint, // might be null
-            databaseKey
-          };
-
-          // SPECIAL CONFIG FOR CODE-TALK (Needs Postgres + Redis - using local pods)
-          if (appType === 'code-talk') {
-            // Generate a secure JWT secret for this tenant
-            const crypto = await import('crypto');
-            const jwtSecret = crypto.randomBytes(32).toString('hex');
-
-            deployConfig.env.push(
-              {
-                name: 'DATABASE_URL',
-                value: 'postgres://codetalk_user:codetalk_postgres123@postgresql-codetalk.default.svc.cluster.local:5432/codetalk'
-              },
-              {
-                name: 'JWT_SECRET',
-                value: jwtSecret
-              },
-              {
-                name: 'REDIS_URL',
-                value: 'redis://:redis123@redis.default.svc.cluster.local:6379'
-              },
-              {
-                name: 'REDIS_HOST',
-                value: 'redis.default.svc.cluster.local'
-              },
-              {
-                name: 'REDIS_PORT',
-                value: '6379'
-              },
-              {
-                name: 'REDIS_PASSWORD',
-                value: 'redis123'
-              }
-            );
-          }
-
-          const deployResult = await k8sService.deployEducationelly(tenantName, deployConfig);
-
-          // Create unified ingress with path-based routing
-          let ingress = null;
-
-          try {
-            const appPrefix = appType;
-
-            // Copy TLS secret from default namespace to tenant namespace
-            try {
-              await k8sService.copySecret('default', 'tenants-wildcard-tls', tenantName);
-              log.debug({ tenantName }, 'TLS secret copied to tenant namespace');
-            } catch (tlsError) {
-              log.warn({ err: tlsError, tenantName }, 'Failed to copy TLS secret, ingress will not have TLS');
-            }
-
-            // Build client and server configs for unified ingress
-            const clientConfig = appConfig.clientImage ? {
-              name: `${appPrefix}-client`,
-              port: appConfig.clientPort
-            } : null;
-
-            const serverConfig = appConfig.serverImage ? {
-              name: `${appPrefix}-server`,
-              port: appConfig.serverPort
-            } : null;
-
-            // Create unified ingress with path-based routing
-            if (clientConfig) {
-              ingress = await ingressService.createUnifiedIngress(
-                tenantName,
-                clientConfig,
-                serverConfig,
-                { tlsSecretName: 'tenants-wildcard-tls' }
-              );
-            }
-
-            log.debug({ tenantName, ingressUrl: ingress?.url }, 'Unified ingress created during tenant creation');
-          } catch (ingressError) {
-            log.error({ err: ingressError, tenantName }, 'Failed to create ingress during tenant creation');
-          }
-
-          response.deployment = {
-            deployed: true,
-            appType: appType,
-            server: deployResult.server?.metadata?.name,
-            client: deployResult.client?.metadata?.name,
-            ingress: ingress
-          };
-          response.message = 'Tenant created and application deployed successfully';
-
-        } catch (deployError) {
-          log.error({ err: deployError, tenantName }, 'Failed to deploy application during tenant creation');
-          response.deployment = {
-            deployed: false,
-            error: 'Application deployment failed',
-            details: deployError.message
-          };
+        if (appConfig.serverImage) {
+          serverIngressUrl = `http://${tenantName}-api.${ingressHost}`;
+          graphqlEndpoint = `${serverIngressUrl}/graphql`;
         }
+
+        const deployConfig = {
+          replicas: 1,
+          appType: appType,
+          serverImage: appConfig.serverImage,
+          clientImage: appConfig.clientImage,
+          serverPort: appConfig.serverPort,
+          clientPort: appConfig.clientPort,
+          env: [
+            { name: 'secret', value: crypto.randomBytes(32).toString('hex') },
+            { name: 'SECRET', value: crypto.randomBytes(32).toString('hex') },
+            { name: 'JWT_SECRET', value: crypto.randomBytes(32).toString('hex') }
+          ],
+          graphqlEndpoint,
+          databaseKey
+        };
+
+        // SPECIAL CONFIG FOR CODE-TALK
+        if (appType === 'code-talk') {
+          const jwtSecret = crypto.randomBytes(32).toString('hex');
+          deployConfig.env.push(
+            { name: 'DATABASE_URL', value: 'postgres://codetalk_user:codetalk_postgres123@postgresql-codetalk.default.svc.cluster.local:5432/codetalk' },
+            { name: 'JWT_SECRET', value: jwtSecret },
+            { name: 'REDIS_URL', value: 'redis://:redis123@redis.default.svc.cluster.local:6379' },
+            { name: 'REDIS_HOST', value: 'redis.default.svc.cluster.local' },
+            { name: 'REDIS_PORT', value: '6379' },
+            { name: 'REDIS_PASSWORD', value: 'redis123' }
+          );
+        }
+
+        const deployResult = await k8sService.deployEducationelly(tenantName, deployConfig);
+
+        // ========== STEP 6: Wait for deployments to be ready ==========
+        try {
+          log.info({ tenantName }, 'Waiting for deployments to be ready...');
+          const deploymentReadiness = await k8sService.waitForAllDeploymentsReady(tenantName, 300000);
+          if (!deploymentReadiness.ready) {
+            log.warn({ tenantName, deployments: deploymentReadiness.deployments }, 'Some deployments not fully ready');
+          } else {
+            log.info({ tenantName }, 'All deployments ready');
+          }
+          response.deploymentReadiness = deploymentReadiness;
+        } catch (readinessError) {
+          log.error({ err: readinessError, tenantName }, 'Deployment readiness check failed');
+          throw readinessError; // Trigger rollback
+        }
+
+        // ========== STEP 7: Create unified ingress ==========
+        let ingress = null;
+
+        // Copy TLS secret from default namespace to tenant namespace
+        try {
+          await k8sService.copySecret('default', 'tenants-wildcard-tls', tenantName);
+          log.debug({ tenantName }, 'TLS secret copied to tenant namespace');
+        } catch (tlsError) {
+          log.warn({ err: tlsError, tenantName }, 'Failed to copy TLS secret, ingress will not have TLS');
+        }
+
+        const appPrefix = appType;
+        const clientConfig = appConfig.clientImage ? {
+          name: `${appPrefix}-client`,
+          port: appConfig.clientPort
+        } : null;
+
+        const serverConfig = appConfig.serverImage ? {
+          name: `${appPrefix}-server`,
+          port: appConfig.serverPort
+        } : null;
+
+        if (clientConfig) {
+          ingress = await ingressService.createUnifiedIngress(
+            tenantName,
+            clientConfig,
+            serverConfig,
+            { tlsSecretName: 'tenants-wildcard-tls' }
+          );
+
+          // ========== STEP 8: Wait for ingress to be ready ==========
+          const ingressStatus = await ingressService.waitForIngressReady(
+            tenantName,
+            ingress.name,
+            120000
+          );
+
+          if (!ingressStatus.ready) {
+            log.warn({ tenantName, ingressStatus }, 'Ingress not fully ready but may still work');
+          }
+          response.ingressReadiness = ingressStatus;
+        }
+
+        log.debug({ tenantName, ingressUrl: ingress?.url }, 'Unified ingress created');
+
+        response.deployment = {
+          deployed: true,
+          appType: appType,
+          server: deployResult.server?.metadata?.name,
+          client: deployResult.client?.metadata?.name,
+          ingress: ingress
+        };
+        response.message = 'Tenant created and application deployed successfully';
       }
 
       log.info({ tenantName }, 'Tenant created successfully');
       res.status(201).json(response);
+
     } catch (error) {
+      // ========== ROLLBACK LOGIC ==========
+      if (namespaceCreated && tenantName) {
+        log.warn({ tenantName }, 'Initiating rollback - deleting namespace');
+        try {
+          await k8sService.deleteTenant(tenantName);
+          log.info({ tenantName }, 'Rollback complete - namespace deleted');
+        } catch (rollbackError) {
+          log.error({ err: rollbackError, tenantName }, 'Rollback failed - manual cleanup may be required');
+        }
+      }
+
       if (error.name === 'ValidationError') {
         return res.status(error.statusCode).json({
           error: 'Validation failed',
           details: error.errors
         });
       }
+
       log.error({ err: error, tenantName: req.body?.tenantName }, 'Failed to create tenant');
-      res.status(500).json({ error: error.message });
+      res.status(500).json({
+        error: error.message,
+        rollback: namespaceCreated ? 'Namespace rolled back' : 'No rollback needed'
+      });
     }
   }
 
