@@ -189,8 +189,8 @@ class TenantController {
         let graphqlEndpoint = null;
 
         if (appConfig.serverImage) {
-          serverIngressUrl = `http://${tenantName}-api.${ingressHost}`;
-          graphqlEndpoint = `${serverIngressUrl}/graphql`;
+          // Use path-based routing: /api/graphql on same host (not subdomain)
+          graphqlEndpoint = `https://${tenantName}.${ingressHost}/api/graphql`;
         }
 
         const deployConfig = {
