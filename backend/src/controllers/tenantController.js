@@ -20,7 +20,9 @@ const DEFAULT_APP_CONFIGS = {
     serverPort: 8000,
     clientPort: 80,
     dbKey: 'mongodb-educationelly-graphql',
-    apiType: 'graphql'
+    apiType: 'graphql',
+    healthCheckPath: '/health',
+    apiPaths: ['/api/graphql']
   },
   'educationelly': {
     serverImage: 'maxjeffwell/educationelly-server:latest',
@@ -28,7 +30,9 @@ const DEFAULT_APP_CONFIGS = {
     serverPort: 8080,
     clientPort: 3000,
     dbKey: 'mongodb-educationelly',
-    apiType: 'rest'
+    apiType: 'rest',
+    healthCheckPath: '/health',
+    apiPaths: ['/signin', '/signup', '/students', '/whoami', '/logout', '/test-auth']
   },
   'code-talk': {
     serverImage: 'maxjeffwell/code-talk-graphql-server:latest',
@@ -36,7 +40,9 @@ const DEFAULT_APP_CONFIGS = {
     serverPort: 8000,
     clientPort: 5000,
     dbKey: 'postgres-codetalk',
-    apiType: 'graphql'
+    apiType: 'graphql',
+    healthCheckPath: '/health',
+    apiPaths: ['/api/graphql']
   },
   'bookmarked': {
     serverImage: 'maxjeffwell/bookmarks-react-hooks-server:latest',
@@ -44,7 +50,9 @@ const DEFAULT_APP_CONFIGS = {
     serverPort: 3001,
     clientPort: 80,
     dbKey: 'postgres-neon',
-    apiType: 'rest'
+    apiType: 'rest',
+    healthCheckPath: '/health',
+    apiPaths: ['/bookmarks', '/health', '/ai']
   },
   'firebook': {
     serverImage: null, // Firebase app, no backend server
@@ -52,7 +60,9 @@ const DEFAULT_APP_CONFIGS = {
     serverPort: null,
     clientPort: 80, // Nginx default
     dbKey: 'firebook-db',
-    apiType: 'none'  // Client-only, Firebase handles backend
+    apiType: 'none',  // Client-only, Firebase handles backend
+    healthCheckPath: null,
+    apiPaths: []
   },
   'intervalai': {
     serverImage: 'maxjeffwell/spaced-repetition-capstone-server:latest',
@@ -60,7 +70,9 @@ const DEFAULT_APP_CONFIGS = {
     serverPort: 8080,
     clientPort: 80,
     dbKey: 'mongodb-intervalai',
-    apiType: 'rest'
+    apiType: 'rest',
+    healthCheckPath: '/health',
+    apiPaths: ['/signin', '/signup', '/api', '/language', '/users', '/logout']
   }
 };
 
@@ -208,6 +220,8 @@ class TenantController {
           clientImage: appConfig.clientImage,
           serverPort: appConfig.serverPort,
           clientPort: appConfig.clientPort,
+          healthCheckPath: appConfig.healthCheckPath || '/health',
+          apiPaths: appConfig.apiPaths || [],
           env: [
             { name: 'secret', value: crypto.randomBytes(32).toString('hex') },
             { name: 'SECRET', value: crypto.randomBytes(32).toString('hex') },
@@ -274,7 +288,7 @@ class TenantController {
             tenantName,
             clientConfig,
             serverConfig,
-            { tlsSecretName: 'tenants-wildcard-tls', apiType: appConfig.apiType }
+            { tlsSecretName: 'tenants-wildcard-tls', apiType: appConfig.apiType, apiPaths: appConfig.apiPaths || [] }
           );
 
           // ========== STEP 8: Wait for ingress to be ready ==========

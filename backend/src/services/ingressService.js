@@ -272,16 +272,24 @@ class IngressService {
 
   /**
    * Create Traefik IngressRoute for REST API apps
-   * Routes /signin, /signup, /students, /whoami, /ai, /logout directly to server
+   * Routes specified API paths directly to server
    * @param {string} namespace - Kubernetes namespace
    * @param {string} host - Host for the ingress
    * @param {Object} serverConfig - Server service config { name, port }
    * @param {string} tlsSecretName - TLS secret name
+   * @param {Array} apiPaths - Array of API paths to route to server (e.g., ['/bookmarks', '/ai'])
    * @returns {Promise<Object>}
    */
-  async createRestApiRoutes(namespace, host, serverConfig, tlsSecretName = 'tenants-wildcard-tls') {
+  async createRestApiRoutes(namespace, host, serverConfig, tlsSecretName = 'tenants-wildcard-tls', apiPaths = []) {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
     const ingressRouteName = `${validatedNamespace}-rest-api`;
+
+    // Default paths if none provided (backwards compatibility)
+    const defaultPaths = ['/signin', '/signup', '/students', '/whoami', '/ai', '/logout', '/test-auth'];
+    const pathsToRoute = apiPaths.length > 0 ? apiPaths : defaultPaths;
+
+    // Build PathPrefix conditions for all paths
+    const pathConditions = pathsToRoute.map(p => `PathPrefix(\`${p}\`)`).join(' || ');
 
     const ingressRoute = {
       apiVersion: `${TRAEFIK_GROUP}/${TRAEFIK_VERSION}`,
@@ -301,18 +309,7 @@ class IngressService {
         routes: [
           {
             kind: 'Rule',
-            match: `Host(\`${host}\`) && (Path(\`/signin\`) || Path(\`/signup\`)) && Method(\`POST\`)`,
-            priority: 100,
-            services: [
-              {
-                name: serverConfig.name,
-                port: serverConfig.port
-              }
-            ]
-          },
-          {
-            kind: 'Rule',
-            match: `Host(\`${host}\`) && (PathPrefix(\`/students\`) || PathPrefix(\`/whoami\`) || PathPrefix(\`/ai\`) || Path(\`/logout\`) || Path(\`/test-auth\`))`,
+            match: `Host(\`${host}\`) && (${pathConditions})`,
             priority: 100,
             services: [
               {
@@ -611,12 +608,13 @@ class IngressService {
     const host = `${validatedTenant}.${this.ingressDomain}`;
     const tlsSecretName = options.tlsSecretName || 'tenants-wildcard-tls';
     const apiType = options.apiType || 'graphql';
+    const apiPaths = options.apiPaths || [];
 
     // If server config provided, create appropriate API routes based on apiType
     if (serverConfig && serverConfig.name) {
       if (apiType === 'rest') {
         // REST apps: route specific paths directly to server
-        await this.createRestApiRoutes(validatedTenant, host, serverConfig, tlsSecretName);
+        await this.createRestApiRoutes(validatedTenant, host, serverConfig, tlsSecretName, apiPaths);
       } else {
         // GraphQL apps: use /api prefix with strip-prefix middleware
         await this.createTraefikApiRoute(validatedTenant, host, serverConfig, tlsSecretName);

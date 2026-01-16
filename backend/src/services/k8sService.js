@@ -795,6 +795,7 @@ class K8sService {
       clientImage,
       serverPort,
       clientPort,
+      healthCheckPath = '/health',  // Configurable health check path
       env = [],
       databaseSecretName = null,
       databaseKey = null,
@@ -853,7 +854,10 @@ class K8sService {
           finalServerPort,
           replicas,
           serverEnv,
-          secretExists ? secretName : null
+          secretExists ? secretName : null,
+          null,  // securityContext
+          null,  // volumeConfig
+          healthCheckPath  // Use configured health check path
         );
 
         // Create service for server
@@ -911,7 +915,8 @@ class K8sService {
           // Usually frontend keys are public so it's okay to inject them.
           secretExists ? secretName : null,
           clientSecurityContext,
-          volumeConfig  // Mount nginx config for GraphQL proxy
+          volumeConfig,  // Mount nginx config for GraphQL proxy
+          '/'  // Client health check always uses root path
         );
 
         // Create service for client
@@ -929,13 +934,13 @@ class K8sService {
   }
 
   // Helper method to create a deployment
-  async createDeployment(namespace, appName, image, port, replicas, env, secretName = null, securityContext = null, volumeConfig = null) {
+  async createDeployment(namespace, appName, image, port, replicas, env, secretName = null, securityContext = null, volumeConfig = null, healthCheckPath = null) {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
     const validatedAppName = validateResourceName(appName, 'deployment');
 
-    // Determine probe path based on app type (clients serve static files, servers have /health)
+    // Use provided health check path or determine from app type
     const isClient = validatedAppName.includes('client');
-    const probePath = isClient ? '/' : '/health';
+    const probePath = healthCheckPath || (isClient ? '/' : '/health');
 
     const containerSpec = {
       name: validatedAppName,
