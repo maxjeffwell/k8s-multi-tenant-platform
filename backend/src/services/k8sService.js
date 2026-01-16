@@ -526,7 +526,7 @@ class K8sService {
           {
             to: [{ podSelector: {} }]
           },
-          // Allow egress to default namespace (for shared databases)
+          // Allow egress to default namespace (for shared databases and AI gateway)
           {
             to: [{
               namespaceSelector: {
@@ -538,7 +538,9 @@ class K8sService {
             ports: [
               { protocol: 'TCP', port: 27017 },  // MongoDB
               { protocol: 'TCP', port: 5432 },   // PostgreSQL
-              { protocol: 'TCP', port: 6379 }    // Redis
+              { protocol: 'TCP', port: 6379 },   // Redis
+              { protocol: 'TCP', port: 8002 },   // Shared AI Gateway
+              { protocol: 'TCP', port: 4000 }    // LiteLLM
             ]
           },
           // Allow external HTTPS (for Neon, Firebase, external APIs)
@@ -685,16 +687,20 @@ class K8sService {
 
       let prefix = '';
       let extraData = {};
+      let databaseName = 'default';
 
       switch (databaseKey) {
         case 'mongodb-educationelly':
           prefix = 'MONGODB_EDUCATIONELLY';
+          databaseName = 'educationelly';
           break;
         case 'mongodb-educationelly-graphql':
           prefix = 'MONGODB_EDUCATIONELLY_GRAPHQL';
+          databaseName = 'educationelly-graphql';
           break;
         case 'mongodb-intervalai':
           prefix = 'MONGODB_INTERVALAI';
+          databaseName = 'intervalai';
           // IntervalAI uses Triton Inference Server for ML predictions
           // CLIENT_ORIGIN is set dynamically based on tenant namespace
           extraData = {
@@ -709,12 +715,15 @@ class K8sService {
           break;
         case 'postgres-codetalk':
           prefix = 'POSTGRES_CODETALK';
+          databaseName = 'codetalk';
           break;
         case 'redis-local':
           prefix = 'REDIS_LOCAL';
+          databaseName = 'redis';
           break;
         case 'postgres-neon':
           prefix = 'NEONDB';
+          databaseName = 'neondb';
           // Bookmarked uses Neon + Local AI (Llama via shared gateway)
           extraData = {
             'OPENAI_API_KEY': decode(data['OPENAI_API_KEY']),
@@ -762,7 +771,7 @@ class K8sService {
         connectionString: decode(data[`${prefix}_CONNECTION_STRING`]),
         username: decode(data[`${prefix}_USERNAME`]),
         password: decode(data[`${prefix}_PASSWORD`]),
-        databaseName: 'default', // Placeholder, often in connection string
+        databaseName: databaseName,
         extraData: extraData
       };
     } catch (error) {
@@ -825,13 +834,20 @@ class K8sService {
 
       // Deploy Server with database secret if available AND server image is provided
       if (serverImage) {
+        // Add AI gateway env vars for server
+        const serverEnv = [
+          ...env,
+          { name: 'AI_GATEWAY_URL', value: 'http://shared-ai-gateway.default.svc.cluster.local:8002' },
+          { name: 'LITELLM_URL', value: 'http://litellm.default.svc.cluster.local:4000' }
+        ];
+
         serverDeployment = await this.createDeployment(
           validatedNamespace,
           `${appPrefix}-server`,
           serverImage,
           finalServerPort,
           replicas,
-          env,
+          serverEnv,
           secretExists ? secretName : null
         );
 
@@ -865,6 +881,18 @@ class K8sService {
       }
 
       let clientDeployment = null;
+      let volumeConfig = null;
+
+      // If we have both server and client, create nginx ConfigMap with GraphQL proxy
+      if (clientImage && serverImage) {
+        const nginxConfig = await this.createNginxConfigMap(
+          validatedNamespace,
+          `${appPrefix}-server`,
+          finalServerPort
+        );
+        volumeConfig = { configMapName: nginxConfig.name };
+      }
+
       if (clientImage) {
         clientDeployment = await this.createDeployment(
           validatedNamespace,
@@ -876,7 +904,8 @@ class K8sService {
           // Client NEEDS the secret if it needs VITE_ keys (Bookmarked/Firebook)
           // Usually frontend keys are public so it's okay to inject them.
           secretExists ? secretName : null,
-          clientSecurityContext
+          clientSecurityContext,
+          volumeConfig  // Mount nginx config for GraphQL proxy
         );
 
         // Create service for client
@@ -894,7 +923,7 @@ class K8sService {
   }
 
   // Helper method to create a deployment
-  async createDeployment(namespace, appName, image, port, replicas, env, secretName = null, securityContext = null) {
+  async createDeployment(namespace, appName, image, port, replicas, env, secretName = null, securityContext = null, volumeConfig = null) {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
     const validatedAppName = validateResourceName(appName, 'deployment');
 
@@ -964,6 +993,17 @@ class K8sService {
       containerSpec.securityContext = securityContext;
     }
 
+    // Add volume mounts if volume config provided (e.g., nginx config)
+    if (volumeConfig && volumeConfig.configMapName) {
+      containerSpec.volumeMounts = [
+        {
+          name: 'nginx-config',
+          mountPath: '/etc/nginx/conf.d/default.conf',
+          subPath: 'default.conf'
+        }
+      ];
+    }
+
     // Add environment variables from secret if provided
     if (secretName) {
       containerSpec.envFrom = [
@@ -1013,7 +1053,17 @@ class K8sService {
             }
           },
           spec: {
-            containers: [containerSpec]
+            containers: [containerSpec],
+            ...(volumeConfig && volumeConfig.configMapName && {
+              volumes: [
+                {
+                  name: 'nginx-config',
+                  configMap: {
+                    name: volumeConfig.configMapName
+                  }
+                }
+              ]
+            })
           }
         }
       }
@@ -1378,6 +1428,86 @@ class K8sService {
       return { message: `Secret ${validatedSecretName} created successfully` };
     } catch (error) {
       throw new Error(`Failed to create secret: ${error.message}`);
+    }
+  }
+
+  // Create nginx ConfigMap with GraphQL proxy for client deployments
+  async createNginxConfigMap(namespace, serverServiceName, serverPort = 8000) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const configMapName = 'nginx-config';
+
+    const nginxConfig = `server {
+    listen 80;
+    server_name localhost;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/json application/javascript;
+
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    location /health {
+        access_log off;
+        return 200 "healthy\\n";
+        add_header Content-Type text/plain;
+    }
+
+    # Proxy GraphQL requests to server
+    location /graphql {
+        proxy_pass http://${serverServiceName}:${serverPort}/graphql;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ~* \\.(?:css|js|jpg|jpeg|gif|png|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}`;
+
+    const configMap = {
+      apiVersion: 'v1',
+      kind: 'ConfigMap',
+      metadata: {
+        name: configMapName,
+        namespace: validatedNamespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+          tenant: validatedNamespace,
+          portfolio: 'true'
+        }
+      },
+      data: {
+        'default.conf': nginxConfig
+      }
+    };
+
+    try {
+      try {
+        await this.coreApi.createNamespacedConfigMap({ namespace: validatedNamespace, body: configMap });
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          await this.coreApi.replaceNamespacedConfigMap({ name: configMapName, namespace: validatedNamespace, body: configMap });
+        } else {
+          throw error;
+        }
+      }
+      this.log.info({ configMapName, namespace: validatedNamespace }, 'Nginx ConfigMap created');
+      return { name: configMapName };
+    } catch (error) {
+      throw new Error(`Failed to create nginx ConfigMap: ${error.message}`);
     }
   }
 
