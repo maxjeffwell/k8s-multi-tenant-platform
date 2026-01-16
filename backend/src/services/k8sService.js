@@ -693,6 +693,10 @@ class K8sService {
         case 'mongodb-educationelly':
           prefix = 'MONGODB_EDUCATIONELLY';
           databaseName = 'educationelly';
+          // Educationelly REST API needs ALLOWED_ORIGINS for CORS
+          extraData = {
+            'ALLOWED_ORIGINS': `https://${namespace}.tenants.el-jefe.me,http://localhost:3000`
+          };
           break;
         case 'mongodb-educationelly-graphql':
           prefix = 'MONGODB_EDUCATIONELLY_GRAPHQL';
@@ -786,6 +790,7 @@ class K8sService {
     const {
       replicas = 1,
       appType = 'educationelly-graphql',
+      apiType = 'graphql',  // 'graphql', 'rest', or 'none'
       serverImage,
       clientImage,
       serverPort,
@@ -793,7 +798,7 @@ class K8sService {
       env = [],
       databaseSecretName = null,
       databaseKey = null,
-      graphqlEndpoint = null // Public GraphQL endpoint URL
+      graphqlEndpoint = null // Public GraphQL endpoint URL (only for GraphQL apps)
     } = config;
 
     // Use appType as the prefix for resource names
@@ -883,12 +888,13 @@ class K8sService {
       let clientDeployment = null;
       let volumeConfig = null;
 
-      // If we have both server and client, create nginx ConfigMap with GraphQL proxy
+      // If we have both server and client, create nginx ConfigMap with API proxy
       if (clientImage && serverImage) {
         const nginxConfig = await this.createNginxConfigMap(
           validatedNamespace,
           `${appPrefix}-server`,
-          finalServerPort
+          finalServerPort,
+          apiType  // Pass apiType to determine proxy configuration
         );
         volumeConfig = { configMapName: nginxConfig.name };
       }
@@ -1234,6 +1240,27 @@ class K8sService {
     }
   }
 
+  // Delete a pod in a namespace
+  async deletePod(namespace, podName) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const validatedPodName = validateResourceName(podName, 'pod');
+
+    try {
+      await this.coreApi.deleteNamespacedPod({
+        name: validatedPodName,
+        namespace: validatedNamespace
+      });
+      this.log.info({ podName: validatedPodName, namespace: validatedNamespace }, 'Pod deleted');
+      return { deleted: true, podName: validatedPodName, namespace: validatedNamespace };
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return { deleted: false, reason: 'not_found', podName: validatedPodName };
+      }
+      this.log.error({ err: error, podName: validatedPodName, namespace: validatedNamespace }, 'Failed to delete pod');
+      throw new Error(`Failed to delete pod: ${error.message}`);
+    }
+  }
+
   // Get resource quota for a namespace
   async getResourceQuota(namespace) {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
@@ -1431,10 +1458,38 @@ class K8sService {
     }
   }
 
-  // Create nginx ConfigMap with GraphQL proxy for client deployments
-  async createNginxConfigMap(namespace, serverServiceName, serverPort = 8000) {
+  // Create nginx ConfigMap with API proxy for client deployments
+  // apiType: 'graphql' proxies /graphql, 'rest' proxies /api
+  async createNginxConfigMap(namespace, serverServiceName, serverPort = 8000, apiType = 'graphql') {
     const validatedNamespace = validateResourceName(namespace, 'namespace');
     const configMapName = 'nginx-config';
+
+    // Generate proxy location block based on API type
+    let proxyLocationBlock;
+    if (apiType === 'graphql') {
+      proxyLocationBlock = `
+    # Proxy GraphQL requests to server
+    location /graphql {
+        proxy_pass http://${serverServiceName}:${serverPort}/graphql;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }`;
+    } else {
+      // REST API - proxy /api to server root
+      proxyLocationBlock = `
+    # Proxy REST API requests to server
+    location /api {
+        proxy_pass http://${serverServiceName}:${serverPort};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }`;
+    }
 
     const nginxConfig = `server {
     listen 80;
@@ -1456,16 +1511,7 @@ class K8sService {
         return 200 "healthy\\n";
         add_header Content-Type text/plain;
     }
-
-    # Proxy GraphQL requests to server
-    location /graphql {
-        proxy_pass http://${serverServiceName}:${serverPort}/graphql;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
+${proxyLocationBlock}
 
     location ~* \\.(?:css|js|jpg|jpeg|gif|png|ico|svg|woff|woff2|ttf|eot)$ {
         expires 1y;

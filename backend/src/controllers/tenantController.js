@@ -19,42 +19,48 @@ const DEFAULT_APP_CONFIGS = {
     clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
     serverPort: 8000,
     clientPort: 80,
-    dbKey: 'mongodb-educationelly-graphql'
+    dbKey: 'mongodb-educationelly-graphql',
+    apiType: 'graphql'
   },
   'educationelly': {
     serverImage: 'maxjeffwell/educationelly-server:latest',
     clientImage: 'maxjeffwell/educationelly-client:latest',
     serverPort: 8080,
     clientPort: 3000,
-    dbKey: 'mongodb-educationelly'
+    dbKey: 'mongodb-educationelly',
+    apiType: 'rest'
   },
   'code-talk': {
     serverImage: 'maxjeffwell/code-talk-graphql-server:latest',
     clientImage: 'maxjeffwell/code-talk-graphql-client:latest',
     serverPort: 8000,
     clientPort: 5000,
-    dbKey: 'postgres-codetalk'
+    dbKey: 'postgres-codetalk',
+    apiType: 'graphql'
   },
   'bookmarked': {
     serverImage: 'maxjeffwell/bookmarks-react-hooks-server:latest',
     clientImage: 'maxjeffwell/bookmarks-react-hooks-client:latest',
     serverPort: 3001,
     clientPort: 80,
-    dbKey: 'postgres-neon'
+    dbKey: 'postgres-neon',
+    apiType: 'rest'
   },
   'firebook': {
     serverImage: null, // Firebase app, no backend server
     clientImage: 'maxjeffwell/firebook:latest',
     serverPort: null,
     clientPort: 80, // Nginx default
-    dbKey: 'firebook-db'
+    dbKey: 'firebook-db',
+    apiType: 'none'  // Client-only, Firebase handles backend
   },
   'intervalai': {
     serverImage: 'maxjeffwell/spaced-repetition-capstone-server:latest',
     clientImage: 'maxjeffwell/spaced-repetition-capstone-client:latest',
     serverPort: 8080,
     clientPort: 80,
-    dbKey: 'mongodb-intervalai'
+    dbKey: 'mongodb-intervalai',
+    apiType: 'rest'
   }
 };
 
@@ -188,7 +194,8 @@ class TenantController {
         let serverIngressUrl = null;
         let graphqlEndpoint = null;
 
-        if (appConfig.serverImage) {
+        // Only set graphqlEndpoint for GraphQL-based apps
+        if (appConfig.serverImage && appConfig.apiType === 'graphql') {
           // Use path-based routing: /api/graphql on same host (not subdomain)
           graphqlEndpoint = `https://${tenantName}.${ingressHost}/api/graphql`;
         }
@@ -196,6 +203,7 @@ class TenantController {
         const deployConfig = {
           replicas: 1,
           appType: appType,
+          apiType: appConfig.apiType,  // 'graphql', 'rest', or 'none'
           serverImage: appConfig.serverImage,
           clientImage: appConfig.clientImage,
           serverPort: appConfig.serverPort,
@@ -266,7 +274,7 @@ class TenantController {
             tenantName,
             clientConfig,
             serverConfig,
-            { tlsSecretName: 'tenants-wildcard-tls' }
+            { tlsSecretName: 'tenants-wildcard-tls', apiType: appConfig.apiType }
           );
 
           // ========== STEP 8: Wait for ingress to be ready ==========

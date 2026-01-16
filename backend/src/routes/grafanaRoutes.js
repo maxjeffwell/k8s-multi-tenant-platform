@@ -65,8 +65,9 @@ router.get('/topology/data', async (req, res) => {
   try {
     const PROMETHEUS_URL = process.env.PROMETHEUS_URL || 'http://192.168.50.119:30090';
 
-    // Query for pod network connections
-    const query = `sum by (namespace, pod) (rate(container_network_receive_bytes_total{namespace=~"test-school.*"}[5m]))`;
+    // Query for pod network connections - exclude system namespaces to show tenant namespaces
+    // This dynamically includes all tenant namespaces (those not in kube-system, monitoring, etc.)
+    const query = `sum by (namespace, pod) (rate(container_network_receive_bytes_total{namespace!~"kube-.*|monitoring|default|velero|gpu-operator|cert-manager|traefik|argocd"}[5m]))`;
 
     const response = await axios.get(`${PROMETHEUS_URL}/api/v1/query`, {
       params: { query }

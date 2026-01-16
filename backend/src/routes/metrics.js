@@ -12,6 +12,7 @@ router.get('/tenant/:tenantName/timeseries', metricsController.getTenantTimeSeri
 router.get('/tenant/:tenantName/cpu', metricsController.getTenantCPU);
 router.get('/tenant/:tenantName/memory', metricsController.getTenantMemory);
 router.get('/tenant/:tenantName/pods', metricsController.getTenantPods);
+router.delete('/tenant/:tenantName/pods/:podName', metricsController.deleteTenantPod.bind(metricsController));
 router.get('/tenant/:tenantName/network', metricsController.getTenantNetwork);
 router.get('/tenant/:tenantName/quota', metricsController.getTenantQuota);
 

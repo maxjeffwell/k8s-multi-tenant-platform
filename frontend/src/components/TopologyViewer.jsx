@@ -89,14 +89,18 @@ function TopologyViewer() {
       ctx.beginPath();
       ctx.arc(x, y, nodeRadius, 0, 2 * Math.PI);
 
-      // Color by namespace
-      if (node.subTitle === 'test-school') {
-        ctx.fillStyle = isSelected ? '#4f46e5' : '#6366f1';
-      } else if (node.subTitle === 'test-school-2') {
-        ctx.fillStyle = isSelected ? '#059669' : '#10b981';
-      } else {
-        ctx.fillStyle = isSelected ? '#7c3aed' : '#8b5cf6';
-      }
+      // Color by namespace - generate consistent colors based on namespace name
+      const namespaceColors = [
+        { base: '#6366f1', selected: '#4f46e5' }, // indigo
+        { base: '#10b981', selected: '#059669' }, // emerald
+        { base: '#8b5cf6', selected: '#7c3aed' }, // purple
+        { base: '#f59e0b', selected: '#d97706' }, // amber
+        { base: '#ec4899', selected: '#db2777' }, // pink
+        { base: '#06b6d4', selected: '#0891b2' }, // cyan
+      ];
+      const namespaceIndex = Array.from(new Set(nodes.map(n => n.subTitle))).indexOf(node.subTitle);
+      const colorSet = namespaceColors[namespaceIndex % namespaceColors.length];
+      ctx.fillStyle = isSelected ? colorSet.selected : colorSet.base;
 
       ctx.fill();
       ctx.strokeStyle = isSelected ? '#fff' : '#e5e7eb';
@@ -229,14 +233,15 @@ function TopologyViewer() {
       <div className="topology-legend">
         <h4>Legend</h4>
         <div className="legend-items">
-          <div className="legend-item">
-            <div className="legend-color" style={{ background: '#6366f1' }}></div>
-            <span>test-school</span>
-          </div>
-          <div className="legend-item">
-            <div className="legend-color" style={{ background: '#10b981' }}></div>
-            <span>test-school-2</span>
-          </div>
+          {topologyData?.metadata?.namespaces?.map((ns, index) => {
+            const colors = ['#6366f1', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4'];
+            return (
+              <div key={ns} className="legend-item">
+                <div className="legend-color" style={{ background: colors[index % colors.length] }}></div>
+                <span>{ns}</span>
+              </div>
+            );
+          })}
           <div className="legend-item">
             <div className="legend-line"></div>
             <span>Network Connection</span>

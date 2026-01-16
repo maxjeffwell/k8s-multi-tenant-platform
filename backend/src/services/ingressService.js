@@ -143,6 +143,17 @@ class IngressService {
         });
       } catch (error) {
         if (isAlreadyExistsError(error)) {
+          // Get existing middleware to retrieve resourceVersion
+          const existingResponse = await this.customObjectsApi.getNamespacedCustomObject({
+            group: TRAEFIK_GROUP,
+            version: TRAEFIK_VERSION,
+            namespace: validatedNamespace,
+            plural: 'middlewares',
+            name: middlewareName
+          });
+          const existingMiddleware = existingResponse.body || existingResponse;
+          middleware.metadata.resourceVersion = existingMiddleware.metadata.resourceVersion;
+
           await this.customObjectsApi.replaceNamespacedCustomObject({
             group: TRAEFIK_GROUP,
             version: TRAEFIK_VERSION,
@@ -227,6 +238,17 @@ class IngressService {
         });
       } catch (error) {
         if (isAlreadyExistsError(error)) {
+          // Get existing IngressRoute to retrieve resourceVersion
+          const existingResponse = await this.customObjectsApi.getNamespacedCustomObject({
+            group: TRAEFIK_GROUP,
+            version: TRAEFIK_VERSION,
+            namespace: validatedNamespace,
+            plural: 'ingressroutes',
+            name: ingressRouteName
+          });
+          const existingRoute = existingResponse.body || existingResponse;
+          ingressRoute.metadata.resourceVersion = existingRoute.metadata.resourceVersion;
+
           await this.customObjectsApi.replaceNamespacedCustomObject({
             group: TRAEFIK_GROUP,
             version: TRAEFIK_VERSION,
@@ -245,6 +267,253 @@ class IngressService {
     } catch (error) {
       this.log.error({ err: error, ingressRouteName, namespace: validatedNamespace }, 'Failed to create Traefik IngressRoute');
       throw new Error(`Failed to create Traefik IngressRoute: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create Traefik IngressRoute for REST API apps
+   * Routes /signin, /signup, /students, /whoami, /ai, /logout directly to server
+   * @param {string} namespace - Kubernetes namespace
+   * @param {string} host - Host for the ingress
+   * @param {Object} serverConfig - Server service config { name, port }
+   * @param {string} tlsSecretName - TLS secret name
+   * @returns {Promise<Object>}
+   */
+  async createRestApiRoutes(namespace, host, serverConfig, tlsSecretName = 'tenants-wildcard-tls') {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const ingressRouteName = `${validatedNamespace}-rest-api`;
+
+    const ingressRoute = {
+      apiVersion: `${TRAEFIK_GROUP}/${TRAEFIK_VERSION}`,
+      kind: 'IngressRoute',
+      metadata: {
+        name: ingressRouteName,
+        namespace: validatedNamespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+          'tenant': validatedNamespace,
+          'ingress-type': 'rest-api',
+          'portfolio': 'true'
+        }
+      },
+      spec: {
+        entryPoints: ['websecure'],
+        routes: [
+          {
+            kind: 'Rule',
+            match: `Host(\`${host}\`) && (Path(\`/signin\`) || Path(\`/signup\`)) && Method(\`POST\`)`,
+            priority: 100,
+            services: [
+              {
+                name: serverConfig.name,
+                port: serverConfig.port
+              }
+            ]
+          },
+          {
+            kind: 'Rule',
+            match: `Host(\`${host}\`) && (PathPrefix(\`/students\`) || PathPrefix(\`/whoami\`) || PathPrefix(\`/ai\`) || Path(\`/logout\`) || Path(\`/test-auth\`))`,
+            priority: 100,
+            services: [
+              {
+                name: serverConfig.name,
+                port: serverConfig.port
+              }
+            ]
+          }
+        ],
+        tls: {
+          secretName: tlsSecretName
+        }
+      }
+    };
+
+    try {
+      try {
+        await this.customObjectsApi.createNamespacedCustomObject({
+          group: TRAEFIK_GROUP,
+          version: TRAEFIK_VERSION,
+          namespace: validatedNamespace,
+          plural: 'ingressroutes',
+          body: ingressRoute
+        });
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          // Get existing IngressRoute to retrieve resourceVersion
+          const existingResponse = await this.customObjectsApi.getNamespacedCustomObject({
+            group: TRAEFIK_GROUP,
+            version: TRAEFIK_VERSION,
+            namespace: validatedNamespace,
+            plural: 'ingressroutes',
+            name: ingressRouteName
+          });
+          const existingRoute = existingResponse.body || existingResponse;
+          ingressRoute.metadata.resourceVersion = existingRoute.metadata.resourceVersion;
+
+          await this.customObjectsApi.replaceNamespacedCustomObject({
+            group: TRAEFIK_GROUP,
+            version: TRAEFIK_VERSION,
+            namespace: validatedNamespace,
+            plural: 'ingressroutes',
+            name: ingressRouteName,
+            body: ingressRoute
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      this.log.info({ ingressRouteName, host, namespace: validatedNamespace }, 'REST API IngressRoute created');
+      return ingressRoute;
+    } catch (error) {
+      this.log.error({ err: error, ingressRouteName, namespace: validatedNamespace }, 'Failed to create REST API IngressRoute');
+      throw new Error(`Failed to create REST API IngressRoute: ${error.message}`);
+    }
+  }
+
+  /**
+   * Create HTTP to HTTPS redirect middleware and route
+   * @param {string} namespace - Kubernetes namespace
+   * @param {string} host - Host for the ingress
+   * @param {Object} clientConfig - Client service config { name, port } (fallback service)
+   * @returns {Promise<Object>}
+   */
+  async createHttpsRedirect(namespace, host, clientConfig) {
+    const validatedNamespace = validateResourceName(namespace, 'namespace');
+    const middlewareName = 'redirect-https';
+    const ingressRouteName = `${validatedNamespace}-http-redirect`;
+
+    // Create redirect middleware
+    const middleware = {
+      apiVersion: `${TRAEFIK_GROUP}/${TRAEFIK_VERSION}`,
+      kind: 'Middleware',
+      metadata: {
+        name: middlewareName,
+        namespace: validatedNamespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+          'tenant': validatedNamespace,
+          'portfolio': 'true'
+        }
+      },
+      spec: {
+        redirectScheme: {
+          scheme: 'https',
+          permanent: true
+        }
+      }
+    };
+
+    // Create HTTP redirect route
+    const ingressRoute = {
+      apiVersion: `${TRAEFIK_GROUP}/${TRAEFIK_VERSION}`,
+      kind: 'IngressRoute',
+      metadata: {
+        name: ingressRouteName,
+        namespace: validatedNamespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+          'tenant': validatedNamespace,
+          'ingress-type': 'http-redirect',
+          'portfolio': 'true'
+        }
+      },
+      spec: {
+        entryPoints: ['web'],
+        routes: [
+          {
+            kind: 'Rule',
+            match: `Host(\`${host}\`)`,
+            middlewares: [
+              { name: middlewareName }
+            ],
+            services: [
+              {
+                name: clientConfig.name,
+                port: clientConfig.port
+              }
+            ]
+          }
+        ]
+      }
+    };
+
+    try {
+      // Create middleware
+      try {
+        await this.customObjectsApi.createNamespacedCustomObject({
+          group: TRAEFIK_GROUP,
+          version: TRAEFIK_VERSION,
+          namespace: validatedNamespace,
+          plural: 'middlewares',
+          body: middleware
+        });
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          // Get existing middleware to retrieve resourceVersion
+          const existingResponse = await this.customObjectsApi.getNamespacedCustomObject({
+            group: TRAEFIK_GROUP,
+            version: TRAEFIK_VERSION,
+            namespace: validatedNamespace,
+            plural: 'middlewares',
+            name: middlewareName
+          });
+          const existingMiddleware = existingResponse.body || existingResponse;
+          middleware.metadata.resourceVersion = existingMiddleware.metadata.resourceVersion;
+
+          await this.customObjectsApi.replaceNamespacedCustomObject({
+            group: TRAEFIK_GROUP,
+            version: TRAEFIK_VERSION,
+            namespace: validatedNamespace,
+            plural: 'middlewares',
+            name: middlewareName,
+            body: middleware
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      // Create redirect route
+      try {
+        await this.customObjectsApi.createNamespacedCustomObject({
+          group: TRAEFIK_GROUP,
+          version: TRAEFIK_VERSION,
+          namespace: validatedNamespace,
+          plural: 'ingressroutes',
+          body: ingressRoute
+        });
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          // Get existing IngressRoute to retrieve resourceVersion
+          const existingResponse = await this.customObjectsApi.getNamespacedCustomObject({
+            group: TRAEFIK_GROUP,
+            version: TRAEFIK_VERSION,
+            namespace: validatedNamespace,
+            plural: 'ingressroutes',
+            name: ingressRouteName
+          });
+          const existingRoute = existingResponse.body || existingResponse;
+          ingressRoute.metadata.resourceVersion = existingRoute.metadata.resourceVersion;
+
+          await this.customObjectsApi.replaceNamespacedCustomObject({
+            group: TRAEFIK_GROUP,
+            version: TRAEFIK_VERSION,
+            namespace: validatedNamespace,
+            plural: 'ingressroutes',
+            name: ingressRouteName,
+            body: ingressRoute
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      this.log.info({ ingressRouteName, host, namespace: validatedNamespace }, 'HTTPS redirect created');
+      return { middleware, ingressRoute };
+    } catch (error) {
+      this.log.error({ err: error, namespace: validatedNamespace }, 'Failed to create HTTPS redirect');
+      throw new Error(`Failed to create HTTPS redirect: ${error.message}`);
     }
   }
 
@@ -333,7 +602,7 @@ class IngressService {
    * @param {string} tenantName - Name of the tenant/namespace
    * @param {Object} clientConfig - Client service config { name, port }
    * @param {Object} serverConfig - Server service config { name, port } (optional for client-only apps)
-   * @param {Object} options - Additional options { tlsSecretName }
+   * @param {Object} options - Additional options { tlsSecretName, apiType }
    * @returns {Promise<Object>}
    */
   async createUnifiedIngress(tenantName, clientConfig, serverConfig = null, options = {}) {
@@ -341,11 +610,21 @@ class IngressService {
     const ingressName = `${validatedTenant}-ingress`;
     const host = `${validatedTenant}.${this.ingressDomain}`;
     const tlsSecretName = options.tlsSecretName || 'tenants-wildcard-tls';
+    const apiType = options.apiType || 'graphql';
 
-    // If server config provided, create Traefik IngressRoute for API with prefix stripping
+    // If server config provided, create appropriate API routes based on apiType
     if (serverConfig && serverConfig.name) {
-      await this.createTraefikApiRoute(validatedTenant, host, serverConfig, tlsSecretName);
+      if (apiType === 'rest') {
+        // REST apps: route specific paths directly to server
+        await this.createRestApiRoutes(validatedTenant, host, serverConfig, tlsSecretName);
+      } else {
+        // GraphQL apps: use /api prefix with strip-prefix middleware
+        await this.createTraefikApiRoute(validatedTenant, host, serverConfig, tlsSecretName);
+      }
     }
+
+    // Create HTTP to HTTPS redirect for all apps
+    await this.createHttpsRedirect(validatedTenant, host, clientConfig);
 
     // Create standard Ingress only for client catch-all route
     const ingress = {
@@ -361,7 +640,7 @@ class IngressService {
           'portfolio': 'true'
         },
         annotations: {
-          'traefik.ingress.kubernetes.io/router.entrypoints': 'web,websecure'
+          'traefik.ingress.kubernetes.io/router.entrypoints': 'websecure'
         }
       },
       spec: {
@@ -405,7 +684,7 @@ class IngressService {
         }
       }
 
-      this.log.info({ ingressName, host, namespace: validatedTenant, hasServer: !!serverConfig }, 'Unified ingress created');
+      this.log.info({ ingressName, host, namespace: validatedTenant, hasServer: !!serverConfig, apiType }, 'Unified ingress created');
 
       return {
         name: ingressName,

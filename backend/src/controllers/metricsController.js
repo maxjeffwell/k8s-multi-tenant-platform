@@ -1,4 +1,5 @@
 import prometheusService from '../services/prometheusService.js';
+import k8sService from '../services/k8sService.js';
 import { createLogger } from '../utils/logger.js';
 import {
   validateBody,
@@ -182,6 +183,58 @@ class MetricsController {
         });
       }
       log.error({ err: error, tenantName: req.params?.tenantName }, 'Failed to fetch tenant pods');
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Delete a pod for a tenant
+   * DELETE /api/metrics/tenant/:tenantName/pods/:podName
+   */
+  async deleteTenantPod(req, res) {
+    try {
+      const { tenantName, podName } = req.params;
+
+      // Validate tenant name
+      validateParams(tenantNameParamSchema, { tenantName });
+
+      if (!podName || typeof podName !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'Pod name is required'
+        });
+      }
+
+      const result = await k8sService.deletePod(tenantName, podName);
+
+      if (result.deleted) {
+        res.json({
+          success: true,
+          message: `Pod ${podName} deleted successfully`,
+          data: result
+        });
+      } else if (result.reason === 'not_found') {
+        res.status(404).json({
+          success: false,
+          error: `Pod ${podName} not found in namespace ${tenantName}`
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to delete pod'
+        });
+      }
+    } catch (error) {
+      if (error.name === 'ValidationError') {
+        return res.status(error.statusCode).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      log.error({ err: error, tenantName: req.params?.tenantName, podName: req.params?.podName }, 'Failed to delete pod');
       res.status(500).json({
         success: false,
         error: error.message
