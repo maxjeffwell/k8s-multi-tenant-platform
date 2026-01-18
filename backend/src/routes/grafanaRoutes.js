@@ -168,14 +168,20 @@ router.get('/topology/data', async (req, res) => {
         // Always include tenant namespace pods
         if (node.subTitle === targetNamespace) return true;
 
-        // For default namespace, only include databases that match tenant app names
-        if (node.subTitle === 'default' && node.role === 'database') {
-          // Check if database name relates to any tenant app
-          const dbName = node.title.toLowerCase();
-          return tenantAppNames.has(node.appName) ||
-                 Array.from(tenantAppNames).some(app => dbName.includes(app.toLowerCase())) ||
-                 // Include common databases the tenant might use
-                 dbName.includes('mongodb') || dbName.includes('postgres') || dbName.includes('redis');
+        // For default namespace, include databases matching app name and shared services
+        if (node.subTitle === 'default') {
+          const podName = node.title.toLowerCase();
+
+          // Include databases that match tenant app names (e.g., mongodb-educationelly for educationelly)
+          if (node.role === 'database') {
+            return Array.from(tenantAppNames).some(app => podName.includes(app.toLowerCase()));
+          }
+
+          // Include shared services the app might use (AI, caching, etc.)
+          const sharedServices = ['litellm', 'ollama', 'langfuse'];
+          if (sharedServices.some(svc => podName.includes(svc))) {
+            return true;
+          }
         }
 
         return false;
@@ -196,12 +202,15 @@ router.get('/topology/data', async (req, res) => {
       namespaceGroups.get(namespace).push(node);
     });
 
-    // For tenant-specific view, create cross-namespace edges (tenant app → shared database)
+    // For tenant-specific view, create cross-namespace edges (tenant app → shared services/databases)
     if (targetNamespace && namespaceGroups.has(targetNamespace) && namespaceGroups.has('default')) {
       const tenantAppPods = namespaceGroups.get(targetNamespace).filter(p => p.role === 'server' || p.role === 'service');
-      const sharedDatabases = namespaceGroups.get('default').filter(p => p.role === 'database');
+      const defaultPods = namespaceGroups.get('default');
+      const sharedDatabases = defaultPods.filter(p => p.role === 'database');
+      const sharedServices = defaultPods.filter(p => p.role !== 'database');
 
       tenantAppPods.forEach(app => {
+        // Connect to databases
         sharedDatabases.forEach(db => {
           const edgeId = `${app.id}->${db.id}`;
           if (!edgeSet.has(edgeId)) {
@@ -214,6 +223,23 @@ router.get('/topology/data', async (req, res) => {
               source: app.id,
               target: db.id,
               mainStat: dbType
+            });
+          }
+        });
+
+        // Connect to shared services (AI, etc.)
+        sharedServices.forEach(svc => {
+          const edgeId = `${app.id}->${svc.id}`;
+          if (!edgeSet.has(edgeId)) {
+            edgeSet.add(edgeId);
+            const svcName = svc.title.toLowerCase();
+            const connType = svcName.includes('litellm') || svcName.includes('ollama') ? 'HTTP/AI' :
+                            svcName.includes('langfuse') ? 'HTTP/Telemetry' : 'HTTP';
+            edges.push({
+              id: edgeId,
+              source: app.id,
+              target: svc.id,
+              mainStat: connType
             });
           }
         });
