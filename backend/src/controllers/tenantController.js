@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import k8sService from '../services/k8sService.js';
 import ingressService from '../services/ingressService.js';
+import neonService from '../services/neonService.js';
 // Note: Atlas service removed - using local MongoDB pods instead
 import { createLogger } from '../utils/logger.js';
 import {
@@ -549,6 +550,19 @@ class TenantController {
       } catch (ingressError) {
         log.warn({ err: ingressError, tenantName }, 'Failed to delete ingresses');
         // Continue with namespace deletion even if ingress deletion fails
+      }
+
+      // Delete Neon branch if configured (for postgres-neon tenants)
+      if (neonService.isConfigured()) {
+        try {
+          const deleted = await neonService.deleteTenantBranch(tenantName);
+          if (deleted) {
+            log.info({ tenantName }, 'Deleted Neon branch for tenant');
+          }
+        } catch (neonError) {
+          log.warn({ err: neonError, tenantName }, 'Failed to delete Neon branch');
+          // Continue with namespace deletion even if Neon branch deletion fails
+        }
       }
 
       // Delete the namespace (this will also delete the secret and remaining resources)

@@ -1,6 +1,7 @@
 import { k8sApi, k8sAppsApi, k8sNetworkingApi, k8sCustomObjectsApi } from '../config/k8s.js';
 import * as k8s from '@kubernetes/client-node';
 import { createLogger } from '../utils/logger.js';
+import neonService from './neonService.js';
 
 // Default logger - can be overridden via dependency injection for testing
 const defaultLog = createLogger('k8s-service');
@@ -722,15 +723,22 @@ class K8sService {
           break;
         case 'postgres-codetalk':
           prefix = 'POSTGRES_CODETALK';
-          databaseName = 'codetalk';
+          databaseName = tenantDbName || 'codetalk';
           break;
         case 'redis-local':
           prefix = 'REDIS_LOCAL';
-          databaseName = 'redis';
+          // Redis uses numeric DB indices (0-15) or key prefixes for isolation
+          // We'll use database index based on tenant, but also set a key prefix
+          databaseName = tenantDbName || 'redis';
+          if (namespace) {
+            extraData = {
+              'REDIS_KEY_PREFIX': `${namespace}:`
+            };
+          }
           break;
         case 'postgres-neon':
           prefix = 'NEONDB';
-          databaseName = 'neondb';
+          databaseName = tenantDbName || 'neondb';
           // Bookmarked uses Neon + Local AI (Llama via shared gateway)
           extraData = {
             'OPENAI_API_KEY': decode(data['OPENAI_API_KEY']),
@@ -744,6 +752,29 @@ class K8sService {
             'LOCAL_AI_ENDPOINT': '/api/ai/generate',
             'REACT_APP_API_BASE_URL': decode(data['REACT_APP_API_BASE_URL'])
           };
+
+          // Use Neon branching for tenant isolation if configured
+          if (namespace && neonService.isConfigured()) {
+            try {
+              this.log.info({ namespace }, 'Creating Neon branch for tenant');
+              const branchInfo = await neonService.createTenantBranch(namespace);
+              // Return early with branch-specific connection string
+              return {
+                connectionString: branchInfo.connectionString,
+                username: 'neondb_owner',
+                password: '', // Password is embedded in connection string
+                databaseName: branchInfo.databaseName,
+                extraData: {
+                  ...extraData,
+                  'NEON_BRANCH_ID': branchInfo.branchId,
+                  'NEON_BRANCH_NAME': branchInfo.branchName
+                }
+              };
+            } catch (branchError) {
+              this.log.warn({ err: branchError, namespace }, 'Failed to create Neon branch, falling back to shared database');
+              // Fall through to default behavior
+            }
+          }
           break;
         case 'firebook-db':
           // Firebook uses Firebase + Algolia
@@ -777,10 +808,11 @@ class K8sService {
       // Get the base connection string and replace database name for tenant isolation
       let connectionString = decode(data[`${prefix}_CONNECTION_STRING`]);
 
-      // For MongoDB connections, replace the database name in the URL with tenant-specific name
-      if (tenantDbName && connectionString.includes('mongodb')) {
-        // MongoDB connection string format: mongodb://user:pass@host:port/dbname?options
-        // Replace the database name (between last / and ?)
+      // For MongoDB and PostgreSQL connections, replace the database name in the URL with tenant-specific name
+      if (tenantDbName && (connectionString.includes('mongodb') || connectionString.includes('postgres'))) {
+        // Connection string format: mongodb://user:pass@host:port/dbname?options
+        //                       or: postgres://user:pass@host:port/dbname?options
+        // Replace the database name (between last / and ? or end of string)
         connectionString = connectionString.replace(
           /\/([^/?]+)(\?|$)/,
           `/${databaseName}$2`
