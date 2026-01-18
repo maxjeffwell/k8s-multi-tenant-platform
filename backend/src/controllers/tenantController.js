@@ -42,9 +42,9 @@ const DEFAULT_APP_CONFIGS = {
     serverPort: 8000,
     clientPort: 5000,
     dbKey: 'postgres-codetalk',
-    apiType: 'graphql',
+    apiType: 'rest',  // Use 'rest' for direct path routing (not /api prefix stripping)
     healthCheckPath: '/health',
-    apiPaths: ['/api/graphql']
+    apiPaths: ['/graphql', '/socket.io']  // Routes needed by Code Talk's frontend
   },
   'bookmarked': {
     serverImage: 'ghcr.io/maxjeffwell/bookmarks-react-hooks-server:20260118-125316-8a4e1eb',
