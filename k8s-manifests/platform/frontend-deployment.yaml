@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: maxjeffwell/tenantflow-frontend:20260118-133443-74772e2
+        image: maxjeffwell/tenantflow-frontend:20260118-140918-684fc7d
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
