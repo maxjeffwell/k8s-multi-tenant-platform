@@ -1736,20 +1736,26 @@ ${proxyLocationBlock}
     const validatedNamespace = validateResourceName(namespace, 'namespace');
 
     try {
-      // Get pods in the namespace that match either GraphQL or REST server deployment
-      let podsResponse = await this.coreApi.listNamespacedPod({
-        namespace: validatedNamespace,
-        labelSelector: 'app=educationelly-graphql-server'
-      });
-      let pods = extractBody(podsResponse);
+      // Try different server label patterns based on app type
+      const serverLabels = [
+        'app=educationelly-graphql-server',
+        'app=educationelly-server',
+        'app=bookmarked-server',
+        'app=intervalai-server',
+        'app=codetalk-server',
+        'app=code-talk-server'
+      ];
 
-      // If no GraphQL server pods found, try REST API server
-      if (!pods?.items || pods.items.length === 0) {
-        podsResponse = await this.coreApi.listNamespacedPod({
+      let pods = null;
+      for (const labelSelector of serverLabels) {
+        const podsResponse = await this.coreApi.listNamespacedPod({
           namespace: validatedNamespace,
-          labelSelector: 'app=educationelly-server'
+          labelSelector
         });
         pods = extractBody(podsResponse);
+        if (pods?.items && pods.items.length > 0) {
+          break;
+        }
       }
 
       if (!pods?.items || pods.items.length === 0) {
