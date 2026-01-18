@@ -184,17 +184,25 @@ router.get('/topology/data', async (req, res) => {
 
           // Include databases that match tenant app names
           if (node.role === 'database') {
-            // Check explicit database mappings first
+            // Check explicit database mappings - only include databases explicitly mapped to this app
             for (const app of tenantAppNames) {
               const databases = appDatabaseMap[app.toLowerCase()] || [];
-              if (databases.some(db => podName.replace(/-/g, '').includes(db.replace(/-/g, '')))) {
-                return true;
+              if (databases.length > 0) {
+                // If explicit mapping exists, use it exclusively (no fallback)
+                if (databases.some(db => podName.replace(/-/g, '').includes(db.replace(/-/g, '')))) {
+                  return true;
+                }
+              } else {
+                // Fallback only if no explicit mapping: match app name exactly at end of db name
+                // e.g., mongodb-educationelly matches educationelly, but not educationelly-graphql
+                const normalizedApp = app.toLowerCase().replace(/-/g, '');
+                const normalizedPod = podName.replace(/-/g, '').replace(/\d+$/, ''); // Remove trailing numbers
+                if (normalizedPod.endsWith(normalizedApp)) {
+                  return true;
+                }
               }
             }
-            // Fallback: try to match app name directly (e.g., mongodb-educationelly for educationelly)
-            return Array.from(tenantAppNames).some(app =>
-              podName.includes(app.toLowerCase().replace(/-/g, ''))
-            );
+            return false;
           }
 
           // Include shared services the app might use (AI, caching, etc.)
