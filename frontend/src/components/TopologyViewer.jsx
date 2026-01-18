@@ -4,7 +4,7 @@ import '../styles/TopologyViewer.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
-function TopologyViewer() {
+function TopologyViewer({ tenantName = null }) {
   const [topologyData, setTopologyData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -13,14 +13,15 @@ function TopologyViewer() {
 
   const fetchTopologyData = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/grafana/topology/data`);
+      const params = tenantName ? { namespace: tenantName } : {};
+      const response = await axios.get(`${API_BASE_URL}/grafana/topology/data`, { params });
       setTopologyData(response.data);
       setLoading(false);
     } catch (err) {
       setError(err.message);
       setLoading(false);
     }
-  }, []);
+  }, [tenantName]);
 
   const drawTopology = useCallback(() => {
     const canvas = canvasRef.current;

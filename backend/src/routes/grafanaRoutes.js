@@ -102,9 +102,20 @@ function getAppName(podName) {
 router.get('/topology/data', async (req, res) => {
   try {
     const PROMETHEUS_URL = process.env.PROMETHEUS_URL || 'http://prometheus-kube-prometheus-prometheus.monitoring:9090';
+    const { namespace: targetNamespace } = req.query;
+
+    // Build namespace filter for query
+    let namespaceFilter;
+    if (targetNamespace) {
+      // For tenant-specific view: show tenant namespace + default namespace (for shared databases)
+      namespaceFilter = `namespace=~"${targetNamespace}|default"`;
+    } else {
+      // For platform view: exclude system namespaces
+      namespaceFilter = `namespace!~"kube-.*|monitoring|velero|gpu-operator|cert-manager|traefik|argocd|external-secrets"`;
+    }
 
     // Query for pod network traffic
-    const query = `sum by (namespace, pod) (rate(container_network_receive_bytes_total{namespace!~"kube-.*|monitoring|default|velero|gpu-operator|cert-manager|traefik|argocd"}[5m]))`;
+    const query = `sum by (namespace, pod) (rate(container_network_receive_bytes_total{${namespaceFilter}}[5m]))`;
 
     const response = await axios.get(`${PROMETHEUS_URL}/api/v1/query`, {
       params: { query }
@@ -115,6 +126,7 @@ router.get('/topology/data', async (req, res) => {
     // Build nodes with role classification
     const nodes = [];
     const nodeMap = new Map();
+    const tenantPods = []; // Track pods in tenant namespace for cross-namespace edge creation
 
     metrics.forEach((metric) => {
       const namespace = metric.metric.namespace;
@@ -124,6 +136,11 @@ router.get('/topology/data', async (req, res) => {
       const appName = getAppName(pod);
 
       const nodeId = `${namespace}/${pod}`;
+
+      // For tenant-specific view, track which pods belong to the tenant
+      if (targetNamespace && namespace === targetNamespace) {
+        tenantPods.push({ pod, role, appName });
+      }
 
       if (!nodeMap.has(nodeId)) {
         nodeMap.set(nodeId, {
@@ -141,19 +158,67 @@ router.get('/topology/data', async (req, res) => {
       }
     });
 
+    // For tenant-specific view, filter to only show relevant nodes
+    let filteredNodes = nodes;
+    if (targetNamespace) {
+      // Get app names from tenant pods to find related databases
+      const tenantAppNames = new Set(tenantPods.map(p => p.appName));
+
+      filteredNodes = nodes.filter(node => {
+        // Always include tenant namespace pods
+        if (node.subTitle === targetNamespace) return true;
+
+        // For default namespace, only include databases that match tenant app names
+        if (node.subTitle === 'default' && node.role === 'database') {
+          // Check if database name relates to any tenant app
+          const dbName = node.title.toLowerCase();
+          return tenantAppNames.has(node.appName) ||
+                 Array.from(tenantAppNames).some(app => dbName.includes(app.toLowerCase())) ||
+                 // Include common databases the tenant might use
+                 dbName.includes('mongodb') || dbName.includes('postgres') || dbName.includes('redis');
+        }
+
+        return false;
+      });
+    }
+
     // Build edges based on actual service relationships
     const edges = [];
     const edgeSet = new Set();
 
-    // Group nodes by namespace
+    // Group filtered nodes by namespace
     const namespaceGroups = new Map();
-    nodes.forEach(node => {
+    filteredNodes.forEach(node => {
       const namespace = node.subTitle;
       if (!namespaceGroups.has(namespace)) {
         namespaceGroups.set(namespace, []);
       }
       namespaceGroups.get(namespace).push(node);
     });
+
+    // For tenant-specific view, create cross-namespace edges (tenant app → shared database)
+    if (targetNamespace && namespaceGroups.has(targetNamespace) && namespaceGroups.has('default')) {
+      const tenantAppPods = namespaceGroups.get(targetNamespace).filter(p => p.role === 'server' || p.role === 'service');
+      const sharedDatabases = namespaceGroups.get('default').filter(p => p.role === 'database');
+
+      tenantAppPods.forEach(app => {
+        sharedDatabases.forEach(db => {
+          const edgeId = `${app.id}->${db.id}`;
+          if (!edgeSet.has(edgeId)) {
+            edgeSet.add(edgeId);
+            const dbType = db.title.toLowerCase().includes('mongo') ? 'MongoDB' :
+                          db.title.toLowerCase().includes('postgres') ? 'PostgreSQL' :
+                          db.title.toLowerCase().includes('redis') ? 'Redis' : 'DB';
+            edges.push({
+              id: edgeId,
+              source: app.id,
+              target: db.id,
+              mainStat: dbType
+            });
+          }
+        });
+      });
+    }
 
     // Create meaningful edges within each namespace
     namespaceGroups.forEach((pods, namespace) => {
@@ -243,12 +308,13 @@ router.get('/topology/data', async (req, res) => {
     });
 
     res.json({
-      nodes,
+      nodes: filteredNodes,
       edges,
       metadata: {
-        total_nodes: nodes.length,
+        total_nodes: filteredNodes.length,
         total_edges: edges.length,
-        namespaces: Array.from(namespaceGroups.keys())
+        namespaces: Array.from(namespaceGroups.keys()),
+        tenant: targetNamespace || null
       }
     });
   } catch (error) {

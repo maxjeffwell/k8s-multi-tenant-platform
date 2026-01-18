@@ -229,8 +229,8 @@ function Analytics() {
         </button>
       </div>
 
-      {/* Tenant selector for tenant metrics view */}
-      {selectedView === 'tenant' && tenants.length > 0 && (
+      {/* Tenant selector for tenant metrics and topology views */}
+      {(selectedView === 'tenant' || selectedView === 'topology') && tenants.length > 0 && (
         <div className="tenant-selector">
           <label htmlFor="tenant-select">Select Tenant:</label>
           <select
@@ -346,7 +346,7 @@ function Analytics() {
       )}
 
       {selectedView === 'topology' && (
-        <TopologyViewer />
+        <TopologyViewer tenantName={selectedTenant} />
       )}
 
       {!loading && (selectedView === 'dashboard' || selectedView === 'explore') && (
