@@ -184,6 +184,17 @@ spec:
             secretKeyRef:
               name: tenantflow-db-credentials
               key: NEONDB_PASSWORD
+        # Neon API credentials for tenant branching
+        - name: NEON_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-neon-credentials
+              key: NEON_API_KEY
+        - name: NEON_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: tenantflow-neon-credentials
+              key: NEON_PROJECT_ID
         # ===========================================
         # Local Redis Credentials (VPS K8s Pod)
         # ===========================================
