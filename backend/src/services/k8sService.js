@@ -689,10 +689,13 @@ class K8sService {
       let extraData = {};
       let databaseName = 'default';
 
+      // For multi-tenancy, use namespace as database name for isolation
+      const tenantDbName = namespace ? `tenant_${namespace.replace(/-/g, '_')}` : null;
+
       switch (databaseKey) {
         case 'mongodb-educationelly':
           prefix = 'MONGODB_EDUCATIONELLY';
-          databaseName = 'educationelly';
+          databaseName = tenantDbName || 'educationelly';
           // Educationelly REST API needs ALLOWED_ORIGINS for CORS
           extraData = {
             'ALLOWED_ORIGINS': `https://${namespace}.tenants.el-jefe.me,http://localhost:3000`
@@ -700,11 +703,11 @@ class K8sService {
           break;
         case 'mongodb-educationelly-graphql':
           prefix = 'MONGODB_EDUCATIONELLY_GRAPHQL';
-          databaseName = 'educationelly-graphql';
+          databaseName = tenantDbName || 'educationelly-graphql';
           break;
         case 'mongodb-intervalai':
           prefix = 'MONGODB_INTERVALAI';
-          databaseName = 'intervalai';
+          databaseName = tenantDbName || 'intervalai';
           // IntervalAI uses Triton Inference Server for ML predictions
           // CLIENT_ORIGIN is set dynamically based on tenant namespace
           extraData = {
@@ -771,8 +774,21 @@ class K8sService {
           throw new Error(`Unknown database key: ${databaseKey}`);
       }
 
+      // Get the base connection string and replace database name for tenant isolation
+      let connectionString = decode(data[`${prefix}_CONNECTION_STRING`]);
+
+      // For MongoDB connections, replace the database name in the URL with tenant-specific name
+      if (tenantDbName && connectionString.includes('mongodb')) {
+        // MongoDB connection string format: mongodb://user:pass@host:port/dbname?options
+        // Replace the database name (between last / and ?)
+        connectionString = connectionString.replace(
+          /\/([^/?]+)(\?|$)/,
+          `/${databaseName}$2`
+        );
+      }
+
       return {
-        connectionString: decode(data[`${prefix}_CONNECTION_STRING`]),
+        connectionString: connectionString,
         username: decode(data[`${prefix}_USERNAME`]),
         password: decode(data[`${prefix}_PASSWORD`]),
         databaseName: databaseName,
