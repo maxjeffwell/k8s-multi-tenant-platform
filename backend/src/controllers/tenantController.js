@@ -271,7 +271,7 @@ class TenantController {
             if (connectionString) {
               const seedResult = await seedService.seedMongoDatabase(connectionString, {
                 demoUsers: [
-                  { email: 'demo@example.com', password: 'demopassword' }
+                  { email: 'demo@demo.example', password: 'demopassword' }
                 ],
                 sampleStudents: true
               });
