@@ -288,8 +288,71 @@ class IngressService {
     const defaultPaths = ['/signin', '/signup', '/students', '/whoami', '/ai', '/logout', '/test-auth'];
     const pathsToRoute = apiPaths.length > 0 ? apiPaths : defaultPaths;
 
+    // Check if /api prefix is used - if so, we need strip-prefix middleware
+    const hasApiPrefix = pathsToRoute.some(p => p === '/api' || p.startsWith('/api/'));
+    let middlewares = [];
+
+    if (hasApiPrefix) {
+      // Create strip-api-prefix middleware
+      const middlewareName = 'strip-api-prefix';
+      const middleware = {
+        apiVersion: `${TRAEFIK_GROUP}/${TRAEFIK_VERSION}`,
+        kind: 'Middleware',
+        metadata: {
+          name: middlewareName,
+          namespace: validatedNamespace,
+          labels: {
+            'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+            'tenant': validatedNamespace,
+            'portfolio': 'true'
+          }
+        },
+        spec: {
+          stripPrefix: {
+            prefixes: ['/api']
+          }
+        }
+      };
+
+      try {
+        await this.customObjectsApi.createNamespacedCustomObject({
+          group: TRAEFIK_GROUP,
+          version: TRAEFIK_VERSION,
+          namespace: validatedNamespace,
+          plural: 'middlewares',
+          body: middleware
+        });
+        this.log.info({ middlewareName, namespace: validatedNamespace }, 'Strip API prefix middleware created');
+      } catch (error) {
+        if (isAlreadyExistsError(error)) {
+          this.log.debug({ middlewareName, namespace: validatedNamespace }, 'Strip API prefix middleware already exists');
+        } else {
+          throw error;
+        }
+      }
+
+      middlewares = [{ name: middlewareName }];
+    }
+
     // Build PathPrefix conditions for all paths
     const pathConditions = pathsToRoute.map(p => `PathPrefix(\`${p}\`)`).join(' || ');
+
+    const routeSpec = {
+      kind: 'Rule',
+      match: `Host(\`${host}\`) && (${pathConditions})`,
+      priority: 100,
+      services: [
+        {
+          name: serverConfig.name,
+          port: serverConfig.port
+        }
+      ]
+    };
+
+    // Add middlewares if any
+    if (middlewares.length > 0) {
+      routeSpec.middlewares = middlewares;
+    }
 
     const ingressRoute = {
       apiVersion: `${TRAEFIK_GROUP}/${TRAEFIK_VERSION}`,
@@ -306,19 +369,7 @@ class IngressService {
       },
       spec: {
         entryPoints: ['websecure'],
-        routes: [
-          {
-            kind: 'Rule',
-            match: `Host(\`${host}\`) && (${pathConditions})`,
-            priority: 100,
-            services: [
-              {
-                name: serverConfig.name,
-                port: serverConfig.port
-              }
-            ]
-          }
-        ],
+        routes: [routeSpec],
         tls: {
           secretName: tlsSecretName
         }
