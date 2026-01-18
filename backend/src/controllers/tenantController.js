@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import k8sService from '../services/k8sService.js';
 import ingressService from '../services/ingressService.js';
 import neonService from '../services/neonService.js';
+import seedService from '../services/seedService.js';
 // Note: Atlas service removed - using local MongoDB pods instead
 import { createLogger } from '../utils/logger.js';
 import {
@@ -260,6 +261,30 @@ class TenantController {
         } catch (readinessError) {
           log.error({ err: readinessError, tenantName }, 'Deployment readiness check failed');
           throw readinessError; // Trigger rollback
+        }
+
+        // ========== STEP 6.5: Seed demo data ==========
+        if (databaseKey && databaseKey.startsWith('mongodb-')) {
+          try {
+            log.info({ tenantName, databaseKey }, 'Seeding demo data into tenant database');
+            const connectionString = seedService.getTenantConnectionString(databaseKey, tenantName);
+            if (connectionString) {
+              const seedResult = await seedService.seedMongoDatabase(connectionString, {
+                demoUsers: [
+                  { email: 'demo@example.com', password: 'demopassword' }
+                ],
+                sampleStudents: true
+              });
+              response.seedData = seedResult;
+              log.info({ tenantName, seedResult }, 'Demo data seeded successfully');
+            } else {
+              log.warn({ tenantName, databaseKey }, 'Could not get connection string for seeding');
+            }
+          } catch (seedError) {
+            // Non-fatal - log warning but don't fail tenant creation
+            log.warn({ err: seedError, tenantName }, 'Failed to seed demo data');
+            response.seedData = { error: seedError.message };
+          }
         }
 
         // ========== STEP 7: Create unified ingress ==========
