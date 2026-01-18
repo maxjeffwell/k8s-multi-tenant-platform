@@ -134,12 +134,32 @@ class NeonService {
   }
 
   /**
-   * Create branch and get connection string in one operation
+   * Create branch and get connection string in one operation (idempotent)
    * @param {string} tenantName - Name of the tenant
    * @returns {Promise<Object>} Branch info with connection string
    */
   async createTenantBranch(tenantName) {
-    // Create the branch
+    const branchName = `tenant-${tenantName}`;
+
+    // Check if branch already exists (idempotent operation)
+    let existingBranch = await this.findBranchByName(branchName);
+
+    if (existingBranch) {
+      log.info({ branchName, branchId: existingBranch.id, tenantName }, 'Neon branch already exists, reusing');
+
+      // Get the connection string for existing branch
+      const connectionString = await this.getConnectionString(existingBranch.id);
+
+      return {
+        branchId: existingBranch.id,
+        branchName: existingBranch.name,
+        connectionString,
+        databaseName: 'neondb',
+        reused: true
+      };
+    }
+
+    // Create a new branch
     const branch = await this.createBranch(tenantName);
 
     // Wait a moment for the endpoint to be ready
