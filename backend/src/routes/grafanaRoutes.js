@@ -63,14 +63,15 @@ router.post('/dashboard/import', async (req, res) => {
 // Helper to determine pod role from name
 function getPodRole(podName) {
   const name = podName.toLowerCase();
+  // Check database first - database pods may contain other keywords like 'graphql' in their name
+  if (name.includes('mongo') || name.includes('postgres') || name.includes('mysql') || name.includes('redis') || name.includes('kafka') || name.includes('influx') || name.includes('clickhouse')) {
+    return 'database';
+  }
   if (name.includes('client') || name.includes('frontend') || name.includes('web') || name.includes('ui')) {
     return 'client';
   }
   if (name.includes('server') || name.includes('api') || name.includes('backend') || name.includes('graphql')) {
     return 'server';
-  }
-  if (name.includes('mongo') || name.includes('postgres') || name.includes('mysql') || name.includes('redis') || name.includes('kafka') || name.includes('influx') || name.includes('clickhouse')) {
-    return 'database';
   }
   return 'service';
 }
