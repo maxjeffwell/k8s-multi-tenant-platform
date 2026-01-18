@@ -47,7 +47,7 @@ const DEFAULT_APP_CONFIGS = {
     apiPaths: ['/graphql', '/socket.io']  // Routes needed by Code Talk's frontend
   },
   'bookmarked': {
-    serverImage: 'ghcr.io/maxjeffwell/bookmarks-react-hooks-server:20260118-125316-8a4e1eb',
+    serverImage: 'maxjeffwell/bookmarks-react-hooks-server:20260118-102929-cef4762',
     clientImage: 'maxjeffwell/bookmarks-react-hooks-client:20260118-102929-cef4762',  // Fixed nginx port 8000->3001
     serverPort: 3001,
     clientPort: 80,
