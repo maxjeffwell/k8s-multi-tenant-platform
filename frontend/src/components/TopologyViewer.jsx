@@ -48,35 +48,77 @@ function TopologyViewer() {
       nodePositions.set(node.id, { x, y, node });
     });
 
-    // Draw edges
-    ctx.strokeStyle = '#6b7280';
-    ctx.lineWidth = 2;
+    // Draw edges with better visibility
     edges.forEach((edge) => {
       const source = nodePositions.get(edge.source);
       const target = nodePositions.get(edge.target);
 
       if (source && target) {
+        // Color edges by type
+        const edgeColors = {
+          'HTTP': '#3b82f6',      // blue
+          'MongoDB': '#10b981',   // green
+          'PostgreSQL': '#8b5cf6', // purple
+          'Redis': '#ef4444',     // red
+          'Replication': '#f59e0b', // amber
+          'default': '#94a3b8'    // slate
+        };
+        const edgeColor = edgeColors[edge.mainStat] || edgeColors.default;
+
+        // Draw edge glow for visibility
+        ctx.strokeStyle = edgeColor + '40'; // 25% opacity
+        ctx.lineWidth = 8;
         ctx.beginPath();
         ctx.moveTo(source.x, source.y);
         ctx.lineTo(target.x, target.y);
         ctx.stroke();
 
-        // Draw arrow
-        const angle = Math.atan2(target.y - source.y, target.x - source.x);
-        const arrowSize = 10;
+        // Draw main edge line
+        ctx.strokeStyle = edgeColor;
+        ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.moveTo(target.x, target.y);
+        ctx.moveTo(source.x, source.y);
+        ctx.lineTo(target.x, target.y);
+        ctx.stroke();
+
+        // Draw arrow (larger and filled)
+        const angle = Math.atan2(target.y - source.y, target.x - source.x);
+        const arrowSize = 14;
+        const arrowOffset = 45; // Offset from node center
+        const arrowX = target.x - arrowOffset * Math.cos(angle);
+        const arrowY = target.y - arrowOffset * Math.sin(angle);
+
+        ctx.beginPath();
+        ctx.moveTo(arrowX, arrowY);
         ctx.lineTo(
-          target.x - arrowSize * Math.cos(angle - Math.PI / 6),
-          target.y - arrowSize * Math.sin(angle - Math.PI / 6)
+          arrowX - arrowSize * Math.cos(angle - Math.PI / 6),
+          arrowY - arrowSize * Math.sin(angle - Math.PI / 6)
         );
         ctx.lineTo(
-          target.x - arrowSize * Math.cos(angle + Math.PI / 6),
-          target.y - arrowSize * Math.sin(angle + Math.PI / 6)
+          arrowX - arrowSize * Math.cos(angle + Math.PI / 6),
+          arrowY - arrowSize * Math.sin(angle + Math.PI / 6)
         );
         ctx.closePath();
-        ctx.fillStyle = '#6b7280';
+        ctx.fillStyle = edgeColor;
         ctx.fill();
+
+        // Draw edge label at midpoint
+        if (edge.mainStat) {
+          const midX = (source.x + target.x) / 2;
+          const midY = (source.y + target.y) / 2;
+
+          // Label background
+          ctx.fillStyle = '#1e293b';
+          const labelWidth = ctx.measureText(edge.mainStat).width + 10;
+          ctx.fillRect(midX - labelWidth / 2, midY - 8, labelWidth, 16);
+
+          // Label text
+          ctx.fillStyle = edgeColor;
+          ctx.font = 'bold 10px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(edge.mainStat, midX, midY);
+        }
       }
     });
 
@@ -233,18 +275,36 @@ function TopologyViewer() {
       <div className="topology-legend">
         <h4>Legend</h4>
         <div className="legend-items">
-          {topologyData?.metadata?.namespaces?.map((ns, index) => {
-            const colors = ['#6366f1', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4'];
-            return (
-              <div key={ns} className="legend-item">
-                <div className="legend-color" style={{ background: colors[index % colors.length] }}></div>
-                <span>{ns}</span>
-              </div>
-            );
-          })}
-          <div className="legend-item">
-            <div className="legend-line"></div>
-            <span>Network Connection</span>
+          <div className="legend-section">
+            <span className="legend-title">Namespaces</span>
+            {topologyData?.metadata?.namespaces?.map((ns, index) => {
+              const colors = ['#6366f1', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4'];
+              return (
+                <div key={ns} className="legend-item">
+                  <div className="legend-color" style={{ background: colors[index % colors.length] }}></div>
+                  <span>{ns}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="legend-section">
+            <span className="legend-title">Connections</span>
+            <div className="legend-item">
+              <div className="legend-line" style={{ background: '#3b82f6' }}></div>
+              <span>HTTP</span>
+            </div>
+            <div className="legend-item">
+              <div className="legend-line" style={{ background: '#10b981' }}></div>
+              <span>MongoDB</span>
+            </div>
+            <div className="legend-item">
+              <div className="legend-line" style={{ background: '#8b5cf6' }}></div>
+              <span>PostgreSQL</span>
+            </div>
+            <div className="legend-item">
+              <div className="legend-line" style={{ background: '#ef4444' }}></div>
+              <span>Redis</span>
+            </div>
           </div>
         </div>
       </div>
