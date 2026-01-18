@@ -32,7 +32,7 @@ const DEFAULT_APP_CONFIGS = {
     dbKey: 'mongodb-educationelly',
     apiType: 'rest',
     healthCheckPath: '/health',
-    apiPaths: ['/signin', '/signup', '/students', '/whoami', '/logout', '/test-auth']
+    apiPaths: ['/signin', '/signup', '/students', '/whoami', '/logout', '/test-auth', '/ai']
   },
   'code-talk': {
     serverImage: 'maxjeffwell/code-talk-graphql-server:latest',
