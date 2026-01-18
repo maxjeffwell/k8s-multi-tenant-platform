@@ -53,8 +53,8 @@ const DEFAULT_APP_CONFIGS = {
     clientPort: 80,
     dbKey: 'postgres-neon',
     apiType: 'rest',
-    healthCheckPath: '/health',
-    apiPaths: ['/bookmarks', '/health', '/ai']
+    healthCheckPath: '/bookmarks',
+    apiPaths: ['/bookmarks', '/ai']
   },
   'firebook': {
     serverImage: null, // Firebase app, no backend server
