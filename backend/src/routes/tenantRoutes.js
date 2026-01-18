@@ -8,6 +8,7 @@ router.post('/', tenantController.createTenant.bind(tenantController));
 router.get('/', tenantController.listTenants.bind(tenantController));
 router.get('/:tenantName', tenantController.getTenant.bind(tenantController));
 router.get('/:tenantName/metrics', tenantController.getTenantMetrics.bind(tenantController));
+router.get('/:tenantName/pods/:podName/logs', tenantController.getPodLogs.bind(tenantController));
 router.patch('/:tenantName', tenantController.updateTenant.bind(tenantController));
 router.delete('/:tenantName', tenantController.deleteTenant.bind(tenantController));
 

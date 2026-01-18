@@ -18,6 +18,8 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
   const [enablingDatabase, setEnablingDatabase] = useState(false);
   const [editingQuota, setEditingQuota] = useState(false);
   const [quotaForm, setQuotaForm] = useState({ cpu: '', memory: '' });
+  const [selectedPodLogs, setSelectedPodLogs] = useState(null);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   const fetchTenantDetails = useCallback(async () => {
     setLoading(true);
@@ -95,6 +97,24 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
       memory: tenant.memory || '4Gi'
     });
     setEditingQuota(true);
+  };
+
+  const handleViewLogs = async (podName) => {
+    setLogsLoading(true);
+    try {
+      const response = await tenantApi.getPodLogs(tenant.name, podName, 200);
+      setSelectedPodLogs({
+        podName,
+        logs: response.logs || 'No logs available'
+      });
+    } catch (err) {
+      setSelectedPodLogs({
+        podName,
+        logs: `Error fetching logs: ${err.message}`
+      });
+    } finally {
+      setLogsLoading(false);
+    }
   };
 
   const handleUpdateQuota = async (e) => {
@@ -316,9 +336,33 @@ function TenantCard({ tenant, isExpanded, onToggle, onDeleted }) {
                           {pod.status}
                         </span>
                         <span className="pod-restarts">Restarts: {pod.restarts}</span>
+                        <button
+                          className="btn-logs"
+                          onClick={() => handleViewLogs(pod.name)}
+                          disabled={logsLoading}
+                        >
+                          {logsLoading && selectedPodLogs?.podName === pod.name ? 'Loading...' : 'Logs'}
+                        </button>
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {selectedPodLogs && (
+                <div className="logs-modal">
+                  <div className="logs-header">
+                    <h4>Logs: {selectedPodLogs.podName}</h4>
+                    <button
+                      className="btn-close-logs"
+                      onClick={() => setSelectedPodLogs(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <pre className="logs-content">
+                    {selectedPodLogs.logs}
+                  </pre>
                 </div>
               )}
 

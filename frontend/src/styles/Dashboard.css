@@ -722,3 +722,73 @@
 .modal-actions button {
   padding: 0.5rem 1.5rem;
 }
+
+/* Pod Logs Viewer */
+.btn-logs {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 0.5rem;
+}
+
+.btn-logs:hover {
+  background: #2563eb;
+}
+
+.btn-logs:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.logs-modal {
+  margin-top: 1rem;
+  background: #1f2937;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.logs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: #374151;
+  border-bottom: 1px solid #4b5563;
+}
+
+.logs-header h4 {
+  margin: 0;
+  color: #f9fafb;
+  font-size: 0.875rem;
+}
+
+.btn-close-logs {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 1.5rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+
+.btn-close-logs:hover {
+  color: #f9fafb;
+}
+
+.logs-content {
+  padding: 1rem;
+  margin: 0;
+  max-height: 400px;
+  overflow: auto;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #d1d5db;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

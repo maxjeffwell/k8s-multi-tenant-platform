@@ -46,6 +46,14 @@ export const tenantApi = {
     const response = await api.delete(`/tenants/${tenantName}`);
     return response.data;
   },
+
+  // Get pod logs
+  getPodLogs: async (tenantName, podName, lines = 100) => {
+    const response = await api.get(`/tenants/${tenantName}/pods/${podName}/logs`, {
+      params: { lines }
+    });
+    return response.data;
+  },
 };
 
 // Deployment API

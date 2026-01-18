@@ -1790,6 +1790,32 @@ ${proxyLocationBlock}
       };
     }
   }
+
+  // Get pod logs
+  async getPodLogs(namespace, podName, options = {}) {
+    const { tailLines = 100, container, timestamps = true } = options;
+
+    try {
+      const params = {
+        name: podName,
+        namespace: namespace,
+        tailLines: tailLines,
+        timestamps: timestamps
+      };
+
+      if (container) {
+        params.container = container;
+      }
+
+      const response = await this.coreApi.readNamespacedPodLog(params);
+      const logs = response?.body || response || '';
+
+      return logs;
+    } catch (error) {
+      this.log.error({ err: error, namespace, podName }, 'Failed to get pod logs');
+      throw new Error(`Failed to get logs for pod ${podName}: ${error.message}`);
+    }
+  }
 }
 
 // Export the class for testing with dependency injection

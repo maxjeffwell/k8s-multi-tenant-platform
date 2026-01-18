@@ -570,6 +570,31 @@ class TenantController {
       res.status(500).json({ error: error.message });
     }
   }
+
+  // Get pod logs for a tenant
+  async getPodLogs(req, res) {
+    try {
+      const { tenantName, podName } = req.params;
+      const { lines = 100, container } = req.query;
+
+      log.info({ tenantName, podName, lines }, 'Fetching pod logs');
+
+      const logs = await k8sService.getPodLogs(tenantName, podName, {
+        tailLines: parseInt(lines, 10),
+        container
+      });
+
+      res.json({
+        success: true,
+        podName,
+        namespace: tenantName,
+        logs
+      });
+    } catch (error) {
+      log.error({ err: error, tenantName: req.params?.tenantName, podName: req.params?.podName }, 'Failed to fetch pod logs');
+      res.status(500).json({ error: error.message });
+    }
+  }
 }
 
 export default new TenantController();
