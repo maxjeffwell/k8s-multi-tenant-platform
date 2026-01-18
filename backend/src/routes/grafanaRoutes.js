@@ -184,20 +184,22 @@ router.get('/topology/data', async (req, res) => {
 
           // Include databases that match tenant app names
           if (node.role === 'database') {
-            // Check explicit database mappings - only include databases explicitly mapped to this app
+            // Normalize pod name: remove hyphens and trailing statefulset index (e.g., -0, -1)
+            const normalizedPod = podName.replace(/-\d+$/, '').replace(/-/g, '');
+
+            // Check explicit database mappings
             for (const app of tenantAppNames) {
               const databases = appDatabaseMap[app.toLowerCase()] || [];
               if (databases.length > 0) {
-                // If explicit mapping exists, use it exclusively (no fallback)
-                if (databases.some(db => podName.replace(/-/g, '').includes(db.replace(/-/g, '')))) {
+                // Exact match: normalized pod must equal normalized db pattern
+                if (databases.some(db => normalizedPod === db.replace(/-/g, ''))) {
                   return true;
                 }
               } else {
-                // Fallback only if no explicit mapping: match app name exactly at end of db name
-                // e.g., mongodb-educationelly matches educationelly, but not educationelly-graphql
+                // Fallback only if no explicit mapping: match app name exactly at end
                 const normalizedApp = app.toLowerCase().replace(/-/g, '');
-                const normalizedPod = podName.replace(/-/g, '').replace(/\d+$/, ''); // Remove trailing numbers
-                if (normalizedPod.endsWith(normalizedApp)) {
+                if (normalizedPod.endsWith(normalizedApp) &&
+                    (normalizedPod === normalizedApp || normalizedPod.endsWith('db' + normalizedApp) || normalizedPod.startsWith('mongodb') || normalizedPod.startsWith('postgres'))) {
                   return true;
                 }
               }
