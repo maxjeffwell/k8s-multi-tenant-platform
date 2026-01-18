@@ -164,6 +164,15 @@ router.get('/topology/data', async (req, res) => {
       // Get app names from tenant pods to find related databases
       const tenantAppNames = new Set(tenantPods.map(p => p.appName));
 
+      // Map app types to their database dependencies
+      const appDatabaseMap = {
+        'code-talk': ['postgresql-codetalk', 'redis'],
+        'bookmarked': ['postgresql-bookmarked', 'redis'],
+        'educationelly': ['mongodb-educationelly'],
+        'educationelly-graphql': ['mongodb-educationelly-graphql'],
+        'intervalai': ['mongodb-intervalai']
+      };
+
       filteredNodes = nodes.filter(node => {
         // Always include tenant namespace pods
         if (node.subTitle === targetNamespace) return true;
@@ -172,13 +181,23 @@ router.get('/topology/data', async (req, res) => {
         if (node.subTitle === 'default') {
           const podName = node.title.toLowerCase();
 
-          // Include databases that match tenant app names (e.g., mongodb-educationelly for educationelly)
+          // Include databases that match tenant app names
           if (node.role === 'database') {
-            return Array.from(tenantAppNames).some(app => podName.includes(app.toLowerCase()));
+            // Check explicit database mappings first
+            for (const app of tenantAppNames) {
+              const databases = appDatabaseMap[app.toLowerCase()] || [];
+              if (databases.some(db => podName.includes(db.replace('-', '')))) {
+                return true;
+              }
+            }
+            // Fallback: try to match app name directly (e.g., mongodb-educationelly for educationelly)
+            return Array.from(tenantAppNames).some(app =>
+              podName.includes(app.toLowerCase().replace(/-/g, ''))
+            );
           }
 
           // Include shared services the app might use (AI, caching, etc.)
-          const sharedServices = ['litellm', 'ollama', 'langfuse'];
+          const sharedServices = ['litellm', 'ollama', 'langfuse', 'shared-ai-gateway'];
           if (sharedServices.some(svc => podName.includes(svc))) {
             return true;
           }

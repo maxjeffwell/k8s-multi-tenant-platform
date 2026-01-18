@@ -1,7 +1,9 @@
 import { MongoClient } from 'mongodb';
+import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import { createLogger } from '../utils/logger.js';
 
+const { Client } = pg;
 const log = createLogger('seed-service');
 
 /**
@@ -141,6 +143,125 @@ class SeedService {
       if (client) {
         await client.close();
       }
+    }
+  }
+
+  /**
+   * Seed demo users and rooms into a PostgreSQL database (Code Talk)
+   * @param {string} connectionString - PostgreSQL connection string
+   * @param {Object} options - Seeding options
+   * @returns {Promise<Object>} Seeding results
+   */
+  async seedPostgresDatabase(connectionString, options = {}) {
+    const {
+      demoUsers = [
+        { username: 'demo', email: 'demo@demo.example', password: 'demopassword' },
+        { username: 'demo2', email: 'demo2@demo.example', password: 'demopassword' }
+      ],
+      defaultRooms = [
+        'General Discussion',
+        'JavaScript Help',
+        'React Development',
+        'Node.js Backend'
+      ]
+    } = options;
+
+    const client = new Client({ connectionString });
+
+    try {
+      log.info('Connecting to PostgreSQL for seeding...');
+      await client.connect();
+      log.info('Connected to PostgreSQL database for seeding');
+
+      const results = {
+        users: [],
+        rooms: [],
+        userRooms: []
+      };
+
+      // Seed demo users
+      for (const user of demoUsers) {
+        // Check if user already exists
+        const existingUser = await client.query(
+          'SELECT id FROM users WHERE username = $1 OR email = $2',
+          [user.username, user.email]
+        );
+
+        if (existingUser.rows.length > 0) {
+          log.info({ username: user.username }, 'Demo user already exists, skipping');
+          results.users.push({ username: user.username, status: 'exists', id: existingUser.rows[0].id });
+          continue;
+        }
+
+        // Hash password and create user
+        const hashedPassword = await this.hashPassword(user.password);
+        const insertResult = await client.query(
+          `INSERT INTO users (username, email, password, role, "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, NOW(), NOW())
+           RETURNING id`,
+          [user.username, user.email.toLowerCase(), hashedPassword, 'USER']
+        );
+
+        log.info({ username: user.username }, 'Demo user created');
+        results.users.push({ username: user.username, status: 'created', id: insertResult.rows[0].id });
+      }
+
+      // Seed default rooms
+      for (const roomTitle of defaultRooms) {
+        // Check if room already exists
+        const existingRoom = await client.query(
+          'SELECT id FROM rooms WHERE title = $1',
+          [roomTitle]
+        );
+
+        if (existingRoom.rows.length > 0) {
+          log.info({ roomTitle }, 'Room already exists, skipping');
+          results.rooms.push({ title: roomTitle, status: 'exists', id: existingRoom.rows[0].id });
+          continue;
+        }
+
+        // Create room
+        const insertResult = await client.query(
+          `INSERT INTO rooms (title, "createdAt", "updatedAt")
+           VALUES ($1, NOW(), NOW())
+           RETURNING id`,
+          [roomTitle]
+        );
+
+        log.info({ roomTitle }, 'Room created');
+        results.rooms.push({ title: roomTitle, status: 'created', id: insertResult.rows[0].id });
+      }
+
+      // Associate all users with all rooms
+      const createdUsers = results.users.filter(u => u.id);
+      const createdRooms = results.rooms.filter(r => r.id);
+
+      for (const user of createdUsers) {
+        for (const room of createdRooms) {
+          // Check if association already exists
+          const existingAssoc = await client.query(
+            'SELECT * FROM user_rooms WHERE "userId" = $1 AND "roomId" = $2',
+            [user.id, room.id]
+          );
+
+          if (existingAssoc.rows.length === 0) {
+            await client.query(
+              `INSERT INTO user_rooms ("userId", "roomId", "createdAt", "updatedAt")
+               VALUES ($1, $2, NOW(), NOW())`,
+              [user.id, room.id]
+            );
+            results.userRooms.push({ userId: user.id, roomId: room.id, status: 'created' });
+          }
+        }
+      }
+
+      log.info({ userCount: results.users.length, roomCount: results.rooms.length }, 'PostgreSQL seeding completed');
+      return results;
+    } catch (error) {
+      log.error({ err: error }, 'Failed to seed PostgreSQL database');
+      throw error;
+    } finally {
+      await client.end();
     }
   }
 

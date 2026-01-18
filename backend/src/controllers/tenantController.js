@@ -287,6 +287,32 @@ class TenantController {
           }
         }
 
+        // Seed PostgreSQL database for Code Talk
+        if (databaseKey === 'postgres-codetalk') {
+          try {
+            log.info({ tenantName, databaseKey }, 'Seeding demo data into PostgreSQL database');
+            const connectionString = 'postgres://codetalk_user:codetalk_postgres123@postgresql-codetalk.default.svc.cluster.local:5432/codetalk';
+            const seedResult = await seedService.seedPostgresDatabase(connectionString, {
+              demoUsers: [
+                { username: 'demo', email: 'demo@demo.example', password: 'demopassword' },
+                { username: 'demo2', email: 'demo2@demo.example', password: 'demopassword' }
+              ],
+              defaultRooms: [
+                'General Discussion',
+                'JavaScript Help',
+                'React Development',
+                'Node.js Backend'
+              ]
+            });
+            response.seedData = seedResult;
+            log.info({ tenantName, seedResult }, 'PostgreSQL demo data seeded successfully');
+          } catch (seedError) {
+            // Non-fatal - log warning but don't fail tenant creation
+            log.warn({ err: seedError, tenantName }, 'Failed to seed PostgreSQL demo data');
+            response.seedData = { error: seedError.message };
+          }
+        }
+
         // ========== STEP 7: Create unified ingress ==========
         let ingress = null;
 
