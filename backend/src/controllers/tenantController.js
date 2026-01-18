@@ -239,7 +239,8 @@ class TenantController {
           deployConfig.env.push(
             { name: 'DATABASE_URL', value: 'postgres://codetalk_user:codetalk_postgres123@postgresql-codetalk.default.svc.cluster.local:5432/codetalk' },
             { name: 'JWT_SECRET', value: jwtSecret },
-            { name: 'REDIS_URL', value: 'redis://:redis123@redis.default.svc.cluster.local:6379' },
+            // Note: Don't set REDIS_URL - Code Talk's subscription module incorrectly enables TLS when REDIS_URL is set
+            // Using individual REDIS_* vars instead to use the non-TLS code path
             { name: 'REDIS_HOST', value: 'redis.default.svc.cluster.local' },
             { name: 'REDIS_PORT', value: '6379' },
             { name: 'REDIS_PASSWORD', value: 'redis123' }
