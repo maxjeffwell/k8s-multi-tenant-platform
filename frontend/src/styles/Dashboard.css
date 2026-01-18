@@ -744,6 +744,230 @@
   cursor: not-allowed;
 }
 
+/* ===== RESPONSIVE STYLES ===== */
+
+/* Tablet */
+@media (max-width: 1024px) {
+  .dashboard {
+    padding: 1.5rem;
+  }
+
+  .dashboard-header h1 {
+    font-size: 2rem;
+  }
+
+  .tenant-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .tenant-meta {
+    flex-wrap: wrap;
+  }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .dashboard {
+    padding: 1rem;
+  }
+
+  .dashboard-header {
+    margin-bottom: 2rem;
+  }
+
+  .dashboard-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .dashboard-header p {
+    font-size: 1rem;
+  }
+
+  .dashboard-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .dashboard-actions button,
+  .dashboard-actions .btn-primary,
+  .dashboard-actions .btn-secondary {
+    width: 100%;
+  }
+
+  .create-tenant-form {
+    padding: 1.5rem;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .tenant-list {
+    padding: 1rem;
+  }
+
+  .tenant-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tenant-card-header {
+    padding: 1rem;
+  }
+
+  .tenant-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .tenant-info h3 {
+    font-size: 1.1rem;
+  }
+
+  .tenant-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .tenant-card-body {
+    padding: 1rem;
+  }
+
+  .deployment-controls {
+    padding: 1rem;
+  }
+
+  .deployments-section,
+  .ingress-section,
+  .database-section,
+  .services-section,
+  .metrics-section,
+  .pods-section {
+    padding: 1rem;
+  }
+
+  .deployment-header,
+  .service-header,
+  .database-header,
+  .ingress-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+
+  .metric {
+    padding: 0.75rem;
+  }
+
+  .metric-value {
+    font-size: 1.25rem;
+  }
+
+  .pod-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .pod-status {
+    margin: 0;
+  }
+
+  .tenant-actions {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .tenant-actions button {
+    width: 100%;
+  }
+
+  /* Modal responsiveness */
+  .modal-content {
+    width: 95%;
+    max-width: none;
+    margin: 1rem;
+    padding: 1.5rem;
+  }
+
+  .modal-content h3 {
+    font-size: 1.25rem;
+  }
+
+  .modal-actions {
+    flex-direction: column;
+  }
+
+  .modal-actions button {
+    width: 100%;
+  }
+
+  .database-option {
+    padding: 0.75rem;
+  }
+
+  /* Edit quota form */
+  .edit-quota-form {
+    padding: 1rem;
+  }
+
+  .edit-quota-form .form-actions {
+    flex-direction: column;
+  }
+
+  .edit-quota-form .form-actions button {
+    width: 100%;
+  }
+
+  /* Logs modal */
+  .logs-content {
+    max-height: 300px;
+    font-size: 0.7rem;
+  }
+}
+
+/* Small phones */
+@media (max-width: 480px) {
+  .dashboard {
+    padding: 0.75rem;
+  }
+
+  .dashboard-header h1 {
+    font-size: 1.25rem;
+  }
+
+  .create-tenant-form {
+    padding: 1rem;
+  }
+
+  .tenant-list {
+    padding: 0.75rem;
+  }
+
+  .tenant-card-header {
+    padding: 0.75rem;
+  }
+
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .service-pods {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ingress-url {
+    font-size: 0.75rem;
+  }
+}
+
 .logs-modal {
   margin-top: 1rem;
   background: #1f2937;
