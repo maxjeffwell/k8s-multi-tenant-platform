@@ -17,8 +17,8 @@ const log = createLogger('tenant-controller');
 
 const DEFAULT_APP_CONFIGS = {
   'educationelly-graphql': {
-    serverImage: 'maxjeffwell/educationelly-graphql-server:latest',
-    clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
+    serverImage: 'ghcr.io/maxjeffwell/educationelly-graphql-server:20260118-124529-7f5da98',
+    clientImage: 'ghcr.io/maxjeffwell/educationelly-graphql-client:20260118-124529-7f5da98',
     serverPort: 8000,
     clientPort: 80,
     dbKey: 'mongodb-educationelly-graphql',
@@ -27,8 +27,8 @@ const DEFAULT_APP_CONFIGS = {
     apiPaths: ['/api/graphql']
   },
   'educationelly': {
-    serverImage: 'maxjeffwell/educationelly-server:latest',
-    clientImage: 'maxjeffwell/educationelly-client:latest',
+    serverImage: 'maxjeffwell/educationelly-server:20260118-125828-ccc1c3d',
+    clientImage: 'maxjeffwell/educationelly-client:20260118-125828-ccc1c3d',
     serverPort: 8080,
     clientPort: 3000,
     dbKey: 'mongodb-educationelly',
@@ -37,8 +37,8 @@ const DEFAULT_APP_CONFIGS = {
     apiPaths: ['/signin', '/signup', '/students', '/whoami', '/logout', '/test-auth', '/ai']
   },
   'code-talk': {
-    serverImage: 'maxjeffwell/code-talk-graphql-server:latest',
-    clientImage: 'maxjeffwell/code-talk-graphql-client:latest',
+    serverImage: 'ghcr.io/maxjeffwell/code-talk-graphql-server:20260118-125659-11477b2',
+    clientImage: 'ghcr.io/maxjeffwell/code-talk-graphql-client:20260118-125659-11477b2',
     serverPort: 8000,
     clientPort: 5000,
     dbKey: 'postgres-codetalk',
@@ -47,8 +47,8 @@ const DEFAULT_APP_CONFIGS = {
     apiPaths: ['/api/graphql']
   },
   'bookmarked': {
-    serverImage: 'maxjeffwell/bookmarks-react-hooks-server:latest',
-    clientImage: 'maxjeffwell/bookmarks-react-hooks-client:latest',
+    serverImage: 'ghcr.io/maxjeffwell/bookmarks-react-hooks-server:20260118-125316-8a4e1eb',
+    clientImage: 'ghcr.io/maxjeffwell/bookmarks-react-hooks-client:20260118-125316-8a4e1eb',
     serverPort: 3001,
     clientPort: 80,
     dbKey: 'postgres-neon',
@@ -67,8 +67,8 @@ const DEFAULT_APP_CONFIGS = {
     apiPaths: []
   },
   'intervalai': {
-    serverImage: 'maxjeffwell/spaced-repetition-capstone-server:latest',
-    clientImage: 'maxjeffwell/spaced-repetition-capstone-client:latest',
+    serverImage: 'maxjeffwell/spaced-repetition-capstone-server:20260118-124906-bb3103e',
+    clientImage: 'maxjeffwell/spaced-repetition-capstone-client:20260118-124906-bb3103e',
     serverPort: 8080,
     clientPort: 80,
     dbKey: 'mongodb-intervalai',
