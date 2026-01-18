@@ -20,7 +20,7 @@ spec:
       serviceAccountName: platform-backend-sa
       containers:
       - name: backend
-        image: maxjeffwell/tenantflow-backend:20260118-153526-bb5512d
+        image: maxjeffwell/tenantflow-backend:20260118-160921-fb90ca8
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
