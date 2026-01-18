@@ -1801,14 +1801,15 @@ ${proxyLocationBlock}
         // Check for successful API calls that require database connectivity
         // These patterns indicate the app is processing requests (which need DB)
         const hasSuccessfulDbOperations =
-          /POST \/signin \[?32m?200/.test(logs) ||    // Successful login requires DB
-          /POST \/signup \[?32m?200/.test(logs) ||    // Successful signup requires DB
-          /POST \/login \[?32m?200/.test(logs) ||     // Alternative login endpoint
-          /GET \/students \[?32m?200/.test(logs) ||   // Fetching students requires DB
-          /GET \/students \[?36m?304/.test(logs) ||   // Cached student fetch
-          /GET \/bookmarks \[?32m?200/.test(logs) ||  // Bookmarked app
-          /GET \/messages \[?32m?200/.test(logs) ||   // Code-talk app
-          /POST \/ai\/chat \[?32m?200/.test(logs) ||  // AI chat requires auth
+          /POST \/signin.*200/.test(logs) ||          // Successful login requires DB
+          /POST \/signup.*200/.test(logs) ||          // Successful signup requires DB
+          /POST \/login.*200/.test(logs) ||           // Alternative login endpoint
+          /GET \/students.*200/.test(logs) ||         // Fetching students requires DB
+          /GET \/students.*304/.test(logs) ||         // Cached student fetch
+          /GET \/bookmarks.*200/.test(logs) ||        // Bookmarked app
+          /GET \/messages.*200/.test(logs) ||         // Code-talk app
+          /POST \/ai\/chat.*200/.test(logs) ||        // AI chat requires auth
+          /GET \/health.*200/.test(logs) ||           // Health checks passing = app running
           logs.includes('Server listening on');        // Server started successfully
 
         if (hasSuccessfulDbOperations) {
