@@ -1737,19 +1737,29 @@ ${proxyLocationBlock}
 
         const logs = logsResponse?.body || logsResponse || '';
 
-        // Check for MongoDB connection indicators
-        const hasMongoConnection = logs.includes('MongoDB') ||
-          logs.includes('mongoose') ||
-          logs.includes('Connected to') ||
-          logs.includes('Database: Connected') ||
-          /Database.*Connected/i.test(logs);
-        const hasMongoError = logs.includes('MongoServerError') ||
+        // Check for database connection errors (MongoDB, PostgreSQL, Redis)
+        const hasDbError =
+          // MongoDB errors
+          logs.includes('MongoServerError') ||
           logs.includes('MongooseServerSelectionError') ||
-          logs.includes('Authentication failed') ||
+          logs.includes('MongoNetworkError') ||
+          // PostgreSQL errors
+          logs.includes('FATAL:') ||
+          logs.includes('password authentication failed') ||
+          logs.includes('database does not exist') ||
+          logs.includes('role does not exist') ||
+          /pg.*error/i.test(logs) ||
+          // Redis errors
+          logs.includes('NOAUTH') ||
+          logs.includes('Redis connection') && logs.includes('error') ||
+          // Generic connection errors
           logs.includes('ECONNREFUSED') ||
-          logs.includes('connection error');
+          logs.includes('ENOTFOUND') ||
+          logs.includes('getaddrinfo') ||
+          logs.includes('connection error') ||
+          logs.includes('Authentication failed');
 
-        if (hasMongoError) {
+        if (hasDbError) {
           return {
             connected: false,
             status: 'connection_error',
@@ -1758,7 +1768,28 @@ ${proxyLocationBlock}
           };
         }
 
-        if (hasMongoConnection) {
+        // Check for explicit database connection indicators
+        const hasDbConnection =
+          // MongoDB
+          logs.includes('MongoDB') ||
+          logs.includes('mongoose') ||
+          logs.includes('Connected to mongo') ||
+          // PostgreSQL
+          logs.includes('PostgreSQL') ||
+          logs.includes('Connected to postgres') ||
+          logs.includes('pg pool') ||
+          logs.includes('sequelize') ||
+          logs.includes('prisma') ||
+          // Redis
+          logs.includes('Redis connected') ||
+          logs.includes('redis ready') ||
+          // Generic
+          logs.includes('Connected to') ||
+          logs.includes('Database: Connected') ||
+          /Database.*Connected/i.test(logs) ||
+          /connected to.*database/i.test(logs);
+
+        if (hasDbConnection) {
           return {
             connected: true,
             status: 'connected',
@@ -1767,11 +1798,33 @@ ${proxyLocationBlock}
           };
         }
 
-        // No clear indicators - pod is running but no connection info
+        // Check for successful API calls that require database connectivity
+        // These patterns indicate the app is processing requests (which need DB)
+        const hasSuccessfulDbOperations =
+          /POST \/signin \[?32m?200/.test(logs) ||    // Successful login requires DB
+          /POST \/signup \[?32m?200/.test(logs) ||    // Successful signup requires DB
+          /POST \/login \[?32m?200/.test(logs) ||     // Alternative login endpoint
+          /GET \/students \[?32m?200/.test(logs) ||   // Fetching students requires DB
+          /GET \/students \[?36m?304/.test(logs) ||   // Cached student fetch
+          /GET \/bookmarks \[?32m?200/.test(logs) ||  // Bookmarked app
+          /GET \/messages \[?32m?200/.test(logs) ||   // Code-talk app
+          /POST \/ai\/chat \[?32m?200/.test(logs) ||  // AI chat requires auth
+          logs.includes('Server listening on');        // Server started successfully
+
+        if (hasSuccessfulDbOperations) {
+          return {
+            connected: true,
+            status: 'connected',
+            message: 'App serving requests successfully',
+            podName: podName
+          };
+        }
+
+        // Pod is running but no indicators found
         return {
           connected: null,
           status: 'unknown',
-          message: 'No database connection info in logs',
+          message: 'No database activity detected yet',
           podName: podName
         };
       } catch (logError) {
