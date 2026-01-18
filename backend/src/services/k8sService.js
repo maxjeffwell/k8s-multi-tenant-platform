@@ -1828,12 +1828,14 @@ ${proxyLocationBlock}
           logs.includes('MongoDB') ||
           logs.includes('mongoose') ||
           logs.includes('Connected to mongo') ||
-          // PostgreSQL
+          // PostgreSQL / Neon
           logs.includes('PostgreSQL') ||
           logs.includes('Connected to postgres') ||
           logs.includes('pg pool') ||
           logs.includes('sequelize') ||
           logs.includes('prisma') ||
+          logs.includes('neon') ||
+          logs.includes('Database initialized successfully') ||
           // Redis
           logs.includes('Redis connected') ||
           logs.includes('redis ready') ||
@@ -1841,6 +1843,7 @@ ${proxyLocationBlock}
           logs.includes('Connected to') ||
           logs.includes('Database: Connected') ||
           /Database.*Connected/i.test(logs) ||
+          /Database.*initialized/i.test(logs) ||
           /connected to.*database/i.test(logs);
 
         if (hasDbConnection) {
