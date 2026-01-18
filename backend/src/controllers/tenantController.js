@@ -48,8 +48,8 @@ const DEFAULT_APP_CONFIGS = {
   },
   'bookmarked': {
     serverImage: 'maxjeffwell/bookmarks-react-hooks-server:20260118-102929-cef4762',
-    clientImage: 'maxjeffwell/bookmarks-react-hooks-client:20260118-102929-cef4762',  // Fixed nginx port 8000->3001
-    serverPort: 3001,
+    clientImage: 'maxjeffwell/bookmarks-react-hooks-client:20260118-104338-cef4762',
+    serverPort: 8000,
     clientPort: 80,
     dbKey: 'postgres-neon',
     apiType: 'rest',

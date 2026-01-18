@@ -167,7 +167,7 @@ router.get('/topology/data', async (req, res) => {
       // Map app types to their database dependencies
       const appDatabaseMap = {
         'code-talk': ['postgresql-codetalk', 'redis'],
-        'bookmarked': ['postgresql-bookmarked', 'redis'],
+        // bookmarked uses Neon (external PostgreSQL) - no in-cluster database
         'educationelly': ['mongodb-educationelly'],
         'educationelly-graphql': ['mongodb-educationelly-graphql'],
         'intervalai': ['mongodb-intervalai']
@@ -298,7 +298,7 @@ router.get('/topology/data', async (req, res) => {
       // Map of which apps use which databases
       const appDbMapping = {
         'code-talk': ['postgresql-codetalk', 'redis'],
-        'bookmarked': ['postgresql-bookmarked', 'redis'],
+        // bookmarked uses Neon (external PostgreSQL) - no in-cluster database to show
         'educationelly': ['mongodb-educationelly'],
         'educationelly-graphql': ['mongodb-educationelly-graphql'],
         'intervalai': ['mongodb-intervalai'],
