@@ -9,11 +9,16 @@ on:
       - '.github/workflows/build-and-deploy-tenantflow.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-and-push:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
-    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,6 +37,13 @@ jobs:
           echo "username=$(doppler secrets get DOCKERHUB_USERNAME --plain)" >> $GITHUB_OUTPUT
           echo "password=$(doppler secrets get DOCKERHUB_PASSWORD --plain)" >> $GITHUB_OUTPUT
 
+      - name: Extract metadata
+        id: meta
+        run: |
+          TAG="$(date +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Building with tag: ${TAG}"
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -44,8 +56,8 @@ jobs:
           context: ./backend
           push: true
           tags: |
+            maxjeffwell/tenantflow-backend:${{ steps.meta.outputs.tag }}
             maxjeffwell/tenantflow-backend:latest
-            maxjeffwell/tenantflow-backend:${{ github.sha }}
           cache-from: type=registry,ref=maxjeffwell/tenantflow-backend:buildcache
           cache-to: type=registry,ref=maxjeffwell/tenantflow-backend:buildcache,mode=max
 
@@ -55,7 +67,66 @@ jobs:
           context: ./frontend
           push: true
           tags: |
+            maxjeffwell/tenantflow-frontend:${{ steps.meta.outputs.tag }}
             maxjeffwell/tenantflow-frontend:latest
-            maxjeffwell/tenantflow-frontend:${{ github.sha }}
           cache-from: type=registry,ref=maxjeffwell/tenantflow-frontend:buildcache
           cache-to: type=registry,ref=maxjeffwell/tenantflow-frontend:buildcache,mode=max
+
+  update-manifests:
+    name: Update K8s Manifests
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    concurrency:
+      group: gitops-update-tenantflow
+      cancel-in-progress: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Update manifests and push
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "Updating TenantFlow image tags to: ${IMAGE_TAG}"
+
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Update Backend deployment
+            sed -i "s|image: maxjeffwell/tenantflow-backend:.*|image: maxjeffwell/tenantflow-backend:${IMAGE_TAG}|" k8s-manifests/platform/backend-deployment.yaml
+
+            # Update Frontend deployment
+            sed -i "s|image: maxjeffwell/tenantflow-frontend:.*|image: maxjeffwell/tenantflow-frontend:${IMAGE_TAG}|" k8s-manifests/platform/frontend-deployment.yaml
+
+            git diff k8s-manifests/platform/
+
+            if git diff --quiet k8s-manifests/platform/; then
+              echo "No changes needed - tags already set to ${IMAGE_TAG}"
+              exit 0
+            fi
+
+            git add k8s-manifests/platform/backend-deployment.yaml k8s-manifests/platform/frontend-deployment.yaml
+            git commit -m "Update TenantFlow image tags to ${IMAGE_TAG}"
+
+            if git push origin main; then
+              echo "Manifests updated. ArgoCD will automatically deploy."
+              exit 0
+            fi
+
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "Push failed (attempt $RETRY_COUNT/$MAX_RETRIES), retrying..."
+            sleep $((RETRY_COUNT * 2))
+          done
+
+          echo "Failed to push after $MAX_RETRIES attempts"
+          exit 1
