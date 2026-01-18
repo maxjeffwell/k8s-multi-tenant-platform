@@ -294,22 +294,47 @@ router.get('/topology/data', async (req, res) => {
         }
       });
 
-      // Server → Database connections
+      // Server → Database connections (only if server actually uses that database)
+      // Map of which apps use which databases
+      const appDbMapping = {
+        'code-talk': ['postgresql-codetalk', 'redis'],
+        'bookmarked': ['postgresql-bookmarked', 'redis'],
+        'educationelly': ['mongodb-educationelly'],
+        'educationelly-graphql': ['mongodb-educationelly-graphql'],
+        'intervalai': ['mongodb-intervalai'],
+        'tenantflow': ['mongodb'] // TenantFlow uses MongoDB for tenant data
+      };
+
       servers.forEach(server => {
+        const serverAppName = server.appName.toLowerCase();
+        const serverDatabases = appDbMapping[serverAppName] || [];
+
         databases.forEach(db => {
-          const edgeId = `${server.id}->${db.id}`;
-          if (!edgeSet.has(edgeId)) {
-            edgeSet.add(edgeId);
-            const dbType = db.title.toLowerCase().includes('mongo') ? 'MongoDB' :
-                          db.title.toLowerCase().includes('postgres') ? 'PostgreSQL' :
-                          db.title.toLowerCase().includes('redis') ? 'Redis' :
-                          db.title.toLowerCase().includes('kafka') ? 'Kafka' : 'DB';
-            edges.push({
-              id: edgeId,
-              source: server.id,
-              target: db.id,
-              mainStat: dbType
-            });
+          const dbName = db.title.toLowerCase();
+
+          // Only create edge if this server uses this database
+          const usesThisDb = serverDatabases.some(dbPattern =>
+            dbName.includes(dbPattern.replace(/-/g, ''))
+          );
+
+          // Also allow if app name matches database name (fallback)
+          const appMatchesDb = dbName.includes(serverAppName.replace(/-/g, ''));
+
+          if (usesThisDb || appMatchesDb) {
+            const edgeId = `${server.id}->${db.id}`;
+            if (!edgeSet.has(edgeId)) {
+              edgeSet.add(edgeId);
+              const dbType = dbName.includes('mongo') ? 'MongoDB' :
+                            dbName.includes('postgres') ? 'PostgreSQL' :
+                            dbName.includes('redis') ? 'Redis' :
+                            dbName.includes('kafka') ? 'Kafka' : 'DB';
+              edges.push({
+                id: edgeId,
+                source: server.id,
+                target: db.id,
+                mainStat: dbType
+              });
+            }
           }
         });
       });
