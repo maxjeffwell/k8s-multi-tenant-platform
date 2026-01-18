@@ -247,6 +247,13 @@ class TenantController {
           );
         }
 
+        // SPECIAL CONFIG FOR BOOKMARKED
+        if (appType === 'bookmarked') {
+          deployConfig.env.push(
+            { name: 'PORT', value: '8000' }
+          );
+        }
+
         const deployResult = await k8sService.deployEducationelly(tenantName, deployConfig);
 
         // ========== STEP 6: Wait for deployments to be ready ==========
