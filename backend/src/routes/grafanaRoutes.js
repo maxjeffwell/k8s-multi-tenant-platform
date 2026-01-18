@@ -186,7 +186,7 @@ router.get('/topology/data', async (req, res) => {
             // Check explicit database mappings first
             for (const app of tenantAppNames) {
               const databases = appDatabaseMap[app.toLowerCase()] || [];
-              if (databases.some(db => podName.includes(db.replace('-', '')))) {
+              if (databases.some(db => podName.replace(/-/g, '').includes(db.replace(/-/g, '')))) {
                 return true;
               }
             }
@@ -311,14 +311,15 @@ router.get('/topology/data', async (req, res) => {
 
         databases.forEach(db => {
           const dbName = db.title.toLowerCase();
+          const normalizedDbName = dbName.replace(/-/g, '');
 
           // Only create edge if this server uses this database
           const usesThisDb = serverDatabases.some(dbPattern =>
-            dbName.includes(dbPattern.replace(/-/g, ''))
+            normalizedDbName.includes(dbPattern.replace(/-/g, ''))
           );
 
           // Also allow if app name matches database name (fallback)
-          const appMatchesDb = dbName.includes(serverAppName.replace(/-/g, ''));
+          const appMatchesDb = normalizedDbName.includes(serverAppName.replace(/-/g, ''));
 
           if (usesThisDb || appMatchesDb) {
             const edgeId = `${server.id}->${db.id}`;
