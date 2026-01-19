@@ -17,8 +17,8 @@ const log = createLogger('tenant-controller');
 
 const DEFAULT_APP_CONFIGS = {
   'educationelly-graphql': {
-    serverImage: 'ghcr.io/maxjeffwell/educationelly-graphql-server:20260118-124529-7f5da98',
-    clientImage: 'ghcr.io/maxjeffwell/educationelly-graphql-client:20260118-124529-7f5da98',
+    serverImage: 'maxjeffwell/educationelly-graphql-server:latest',
+    clientImage: 'maxjeffwell/educationelly-graphql-client:latest',
     serverPort: 8000,
     clientPort: 80,
     dbKey: 'mongodb-educationelly-graphql',
@@ -37,8 +37,8 @@ const DEFAULT_APP_CONFIGS = {
     apiPaths: ['/signin', '/signup', '/students', '/whoami', '/logout', '/test-auth', '/ai']
   },
   'code-talk': {
-    serverImage: 'ghcr.io/maxjeffwell/code-talk-graphql-server:20260118-125659-11477b2',
-    clientImage: 'ghcr.io/maxjeffwell/code-talk-graphql-client:20260118-125659-11477b2',
+    serverImage: 'maxjeffwell/code-talk-graphql-server:latest',
+    clientImage: 'maxjeffwell/code-talk-graphql-client:latest',
     serverPort: 8000,
     clientPort: 5000,
     dbKey: 'postgres-codetalk',
