@@ -413,6 +413,7 @@ metadata:
     portfolio: "true"
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod-dns
 spec:
   ingressClassName: traefik
   rules:
@@ -433,7 +434,10 @@ spec:
             name: tenantflow-frontend
             port:
               number: 80
-
+  tls:
+  - hosts:
+    - tenantflow.el-jefe.me
+    secretName: tenantflow-tls
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -445,6 +449,7 @@ metadata:
     portfolio: "true"
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod-dns
 spec:
   ingressClassName: traefik
   rules:
@@ -468,6 +473,11 @@ spec:
             name: prometheus-kube-prometheus-prometheus
             port:
               number: 9090
+  tls:
+  - hosts:
+    - grafana.el-jefe.me
+    - prometheus.el-jefe.me
+    secretName: monitoring-tls
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
