@@ -6,8 +6,9 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --production --no-audit
+# Install dependencies (BuildKit cache speeds up repeated builds)
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev
 
 # Production image
 FROM node:18-alpine
