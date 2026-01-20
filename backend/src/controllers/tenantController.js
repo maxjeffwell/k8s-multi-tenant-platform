@@ -250,7 +250,11 @@ class TenantController {
         // SPECIAL CONFIG FOR BOOKMARKED
         if (appType === 'bookmarked') {
           deployConfig.env.push(
-            { name: 'PORT', value: '8000' }
+            { name: 'PORT', value: '8000' },
+            // Redis cache configuration
+            { name: 'REDIS_HOST', value: 'redis.default.svc.cluster.local' },
+            { name: 'REDIS_PORT', value: '6379' },
+            { name: 'REDIS_PASSWORD', value: 'redis123' }
           );
         }
 
