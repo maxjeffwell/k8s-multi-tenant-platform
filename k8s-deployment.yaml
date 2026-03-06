@@ -75,6 +75,7 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
     spec:
+      priorityClassName: portfolio-app
       serviceAccountName: tenantflow-backend
       containers:
       - name: backend
@@ -273,6 +274,7 @@ spec:
         component: frontend
         portfolio: "true"
     spec:
+      priorityClassName: portfolio-app
       containers:
       - name: frontend
         image: maxjeffwell/tenantflow-frontend:20260306-020428-4ba0efa
@@ -317,6 +319,12 @@ spec:
             cp -r /usr/share/nginx/html/* /work-dir/ &&
             find /work-dir -type f -name "*.js" -exec sed -i 's|http://192.168.50.119:30300|https://grafana.el-jefe.me|g' {} + &&
             find /work-dir -type f -name "*.js" -exec sed -i 's|http://192.168.50.119:30090|https://prometheus.el-jefe.me|g' {} +
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
         volumeMounts:
         - name: html-volume
           mountPath: /work-dir
