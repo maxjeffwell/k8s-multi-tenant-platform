@@ -214,12 +214,14 @@ spec:
             port: 3000
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
         readinessProbe:
           httpGet:
             path: /health
             port: 3000
           initialDelaySeconds: 10
           periodSeconds: 5
+          timeoutSeconds: 5
         resources:
           requests:
             cpu: 200m
@@ -290,12 +292,14 @@ spec:
             port: 8080
           initialDelaySeconds: 15
           periodSeconds: 10
+          timeoutSeconds: 5
         readinessProbe:
           httpGet:
             path: /
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 5
+          timeoutSeconds: 5
         resources:
           requests:
             cpu: 50m
