@@ -12,11 +12,14 @@ spec:
     # Allow ingress only from same namespace
     - from:
         - podSelector: {}
-    # Allow ingress from ingress controller (if using one)
+    # Allow ingress from Traefik ingress controller
     - from:
         - namespaceSelector:
             matchLabels:
-              name: ingress-nginx
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
   egress:
     # Allow DNS resolution
     - to:
