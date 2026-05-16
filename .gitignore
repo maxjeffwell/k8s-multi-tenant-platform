@@ -79,3 +79,6 @@ k8s-db-secrets.yaml
 # Kubernetes
 kubeconfig
 *.kubeconfig
+
+# Serena MCP server tool state (per-developer; not shared)
+.serena/
