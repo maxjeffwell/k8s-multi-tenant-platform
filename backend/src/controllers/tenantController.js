@@ -386,7 +386,24 @@ class TenantController {
     } catch (error) {
       // ========== ROLLBACK LOGIC ==========
       if (namespaceCreated && tenantName) {
-        log.warn({ tenantName }, 'Initiating rollback - deleting namespace');
+        log.warn({ tenantName }, 'Initiating rollback - deleting namespace and Neon resources');
+        // Best-effort cleanup of Neon-side resources too. These live in the
+        // `neon` namespace, so deleteTenant (which scopes to the tenant ns)
+        // won't touch them. Without this, a failed create leaves orphan
+        // compute pods + tenant-map entries that block future creates with
+        // the same name.
+        if (neonService.isConfigured()) {
+          try {
+            await k8sService.tearDownNeonCompute({ computeName: `compute-${tenantName}` });
+          } catch (e) {
+            log.warn({ err: e, tenantName }, 'Rollback: tearDownNeonCompute failed (continuing)');
+          }
+          try {
+            await neonService.deleteTenantBranch(tenantName);
+          } catch (e) {
+            log.warn({ err: e, tenantName }, 'Rollback: deleteTenantBranch failed (continuing)');
+          }
+        }
         try {
           await k8sService.deleteTenant(tenantName);
           log.info({ tenantName }, 'Rollback complete - namespace deleted');
