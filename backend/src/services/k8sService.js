@@ -753,21 +753,32 @@ class K8sService {
             'REACT_APP_API_BASE_URL': decode(data['REACT_APP_API_BASE_URL'])
           };
 
-          // Use Neon branching for tenant isolation if configured
+          // Use self-hosted Neon branching for tenant isolation if configured.
+          // Creates tenant + main timeline on the pageserver and returns IDs.
+          // NOTE: a usable PostgreSQL connection string requires a per-branch
+          // compute pod (Deployment + ConfigMap + Service) that mounts the
+          // spec.json templated with these IDs. That provisioning is not yet
+          // implemented in this service — see provisionNeonCompute() TODO
+          // below. Until then, branchInfo.connectionString is null and the
+          // tenant app receives the raw pageserver/safekeeper coordinates as
+          // env vars so it (or a sidecar) can do the compute_ctl dance.
           if (namespace && neonService.isConfigured()) {
             try {
               this.log.info({ namespace }, 'Creating Neon branch for tenant');
               const branchInfo = await neonService.createTenantBranch(namespace);
-              // Return early with branch-specific connection string
               return {
                 connectionString: branchInfo.connectionString,
-                username: 'neondb_owner',
-                password: '', // Password is embedded in connection string
+                username: 'cloud_admin',
+                password: '',
                 databaseName: branchInfo.databaseName,
                 extraData: {
                   ...extraData,
-                  'NEON_BRANCH_ID': branchInfo.branchId,
-                  'NEON_BRANCH_NAME': branchInfo.branchName
+                  'NEON_TENANT_ID': branchInfo.tenantId,
+                  'NEON_TIMELINE_ID': branchInfo.timelineId,
+                  'NEON_PAGESERVER_HOST': branchInfo.pageserverHost,
+                  'NEON_SAFEKEEPER_HOSTS': branchInfo.safekeeperHosts.join(','),
+                  'NEON_BRANCH_ID': branchInfo.branchId,      // back-compat
+                  'NEON_BRANCH_NAME': branchInfo.branchName,  // back-compat
                 }
               };
             } catch (branchError) {
