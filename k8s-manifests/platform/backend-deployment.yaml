@@ -33,6 +33,9 @@ spec:
           value: "production"
         - name: PROMETHEUS_URL
           value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+        # Self-hosted Neon pageserver for tenant branching.
+        - name: PAGESERVER_URL
+          value: "http://tenantflow-neon-neon-pageserver-headless.neon.svc.cluster.local:9898"
         resources:
           requests:
             cpu: 100m
