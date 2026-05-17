@@ -615,8 +615,17 @@ class TenantController {
         // Continue with namespace deletion even if ingress deletion fails
       }
 
-      // Delete Neon branch if configured (for postgres-neon tenants)
+      // Tear down Neon branch if configured (for postgres-neon tenants):
+      // (1) delete the compute pod resources, (2) delete the timeline + mapping.
+      // Order matters — compute_ctl will fail if the timeline is gone first,
+      // and deleting the timeline frees pageserver storage.
       if (neonService.isConfigured()) {
+        try {
+          await k8sService.tearDownNeonCompute({ computeName: `compute-${tenantName}` });
+          log.info({ tenantName }, 'Tore down Neon compute pod');
+        } catch (computeError) {
+          log.warn({ err: computeError, tenantName }, 'Failed to tear down Neon compute (continuing)');
+        }
         try {
           const deleted = await neonService.deleteTenantBranch(tenantName);
           if (deleted) {

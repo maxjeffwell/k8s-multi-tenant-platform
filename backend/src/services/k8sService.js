@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { k8sApi, k8sAppsApi, k8sNetworkingApi, k8sCustomObjectsApi } from '../config/k8s.js';
 import * as k8s from '@kubernetes/client-node';
 import { createLogger } from '../utils/logger.js';
@@ -753,30 +754,32 @@ class K8sService {
             'REACT_APP_API_BASE_URL': decode(data['REACT_APP_API_BASE_URL'])
           };
 
-          // Use self-hosted Neon branching for tenant isolation if configured.
-          // Creates tenant + main timeline on the pageserver and returns IDs.
-          // NOTE: a usable PostgreSQL connection string requires a per-branch
-          // compute pod (Deployment + ConfigMap + Service) that mounts the
-          // spec.json templated with these IDs. That provisioning is not yet
-          // implemented in this service — see provisionNeonCompute() TODO
-          // below. Until then, branchInfo.connectionString is null and the
-          // tenant app receives the raw pageserver/safekeeper coordinates as
-          // env vars so it (or a sidecar) can do the compute_ctl dance.
+          // Self-hosted Neon branching for tenant isolation: (1) create tenant
+          // + main timeline on the pageserver, (2) provision a per-branch
+          // compute pod that serves a real Postgres :55432 endpoint.
           if (namespace && neonService.isConfigured()) {
             try {
               this.log.info({ namespace }, 'Creating Neon branch for tenant');
               const branchInfo = await neonService.createTenantBranch(namespace);
+              const computeName = `compute-${namespace}`;
+              const compute = await this.provisionNeonCompute({
+                tenantId: branchInfo.tenantId,
+                timelineId: branchInfo.timelineId,
+                computeName,
+                namespace: branchInfo.namespace || 'neon',
+              });
+              this.log.info({ namespace, computeName, tenantId: branchInfo.tenantId, timelineId: branchInfo.timelineId }, 'Neon compute provisioned');
               return {
-                connectionString: branchInfo.connectionString,
-                username: 'cloud_admin',
-                password: '',
-                databaseName: branchInfo.databaseName,
+                connectionString: compute.connectionString,
+                username: compute.username,
+                password: compute.password,
+                databaseName: compute.databaseName,
                 extraData: {
                   ...extraData,
                   'NEON_TENANT_ID': branchInfo.tenantId,
                   'NEON_TIMELINE_ID': branchInfo.timelineId,
-                  'NEON_PAGESERVER_HOST': branchInfo.pageserverHost,
-                  'NEON_SAFEKEEPER_HOSTS': branchInfo.safekeeperHosts.join(','),
+                  'NEON_COMPUTE_HOST': compute.host,
+                  'NEON_COMPUTE_PORT': String(compute.port),
                   'NEON_BRANCH_ID': branchInfo.branchId,      // back-compat
                   'NEON_BRANCH_NAME': branchInfo.branchName,  // back-compat
                 }
@@ -1937,6 +1940,247 @@ ${proxyLocationBlock}
       this.log.error({ err: error, namespace, podName }, 'Failed to get pod logs');
       throw new Error(`Failed to get logs for pod ${podName}: ${error.message}`);
     }
+  }
+
+  // ---- Neon compute provisioning -----------------------------------------
+  //
+  // A Neon "branch" is just a (tenant_id, timeline_id) pair on the pageserver.
+  // To connect to it, we run a per-branch Postgres compute pod: it reads
+  // pages from the pageserver and writes WAL to the safekeepers, presenting
+  // a normal Postgres :55432 endpoint.
+  //
+  // provisionNeonCompute creates 4 resources in the `neon` namespace:
+  //   Secret  <computeName>-creds   — random password, MD5 hash for spec.json
+  //   ConfigMap <computeName>-spec  — spec.json (cluster_id, tenant_id,
+  //                                   timeline_id, safekeeper list, pageserver
+  //                                   connstring, password hash, PG settings)
+  //   Deployment <computeName>      — 1 replica, image perconalab/neon
+  //   Service    <computeName>      — ClusterIP on :55432
+  //
+  // Returns connection info — caller wires it into the tenant app's secret.
+
+  _buildNeonComputeSpec({ tenantId, timelineId, computeName, passwordHash, namespace }) {
+    const safekeepers = [0, 1, 2]
+      .map((i) => `tenantflow-neon-neon-safekeeper-${i}.tenantflow-neon-neon-safekeeper-headless.${namespace}.svc.cluster.local:5454`)
+      .join(',');
+    const pageserverConnstring = `host=tenantflow-neon-neon-pageserver-0.tenantflow-neon-neon-pageserver-headless.${namespace}.svc.cluster.local port=6400`;
+    return JSON.stringify({
+      format_version: 1.0,
+      timestamp: new Date().toISOString(),
+      operation_uuid: crypto.randomUUID(),
+      cluster: {
+        cluster_id: computeName,
+        name: computeName,
+        state: 'restarted',
+        roles: [
+          { name: 'cloud_admin', encrypted_password: passwordHash, options: null },
+        ],
+        databases: [],
+        settings: [
+          { name: 'fsync', value: 'off', vartype: 'bool' },
+          { name: 'wal_level', value: 'replica', vartype: 'enum' },
+          { name: 'hot_standby', value: 'on', vartype: 'bool' },
+          { name: 'wal_log_hints', value: 'on', vartype: 'bool' },
+          { name: 'log_connections', value: 'on', vartype: 'bool' },
+          { name: 'port', value: '55432', vartype: 'integer' },
+          { name: 'shared_buffers', value: '1MB', vartype: 'string' },
+          { name: 'max_connections', value: '100', vartype: 'integer' },
+          { name: 'listen_addresses', value: '0.0.0.0', vartype: 'string' },
+          { name: 'max_wal_senders', value: '10', vartype: 'integer' },
+          { name: 'max_replication_slots', value: '10', vartype: 'integer' },
+          { name: 'wal_sender_timeout', value: '5s', vartype: 'string' },
+          { name: 'wal_keep_size', value: '0', vartype: 'integer' },
+          { name: 'password_encryption', value: 'md5', vartype: 'enum' },
+          { name: 'restart_after_crash', value: 'off', vartype: 'bool' },
+          { name: 'synchronous_standby_names', value: 'walproposer', vartype: 'string' },
+          { name: 'shared_preload_libraries', value: 'neon', vartype: 'string' },
+          // Empty unix_socket_directories — only TCP via the K8s Service is
+          // used; the default `/tmp` socket-lock-file path fails in this
+          // image, and we don't need local sockets anyway.
+          { name: 'unix_socket_directories', value: '', vartype: 'string' },
+          { name: 'neon.safekeepers', value: safekeepers, vartype: 'string' },
+          { name: 'neon.timeline_id', value: timelineId, vartype: 'string' },
+          { name: 'neon.tenant_id', value: tenantId, vartype: 'string' },
+          { name: 'neon.pageserver_connstring', value: pageserverConnstring, vartype: 'string' },
+          { name: 'max_replication_write_lag', value: '500MB', vartype: 'string' },
+          { name: 'max_replication_flush_lag', value: '10GB', vartype: 'string' },
+        ],
+      },
+      delta_operations: [],
+    }, null, 2);
+  }
+
+  async _ensureBranchPassword(computeName, namespace) {
+    const secretName = `${computeName}-creds`;
+    try {
+      const existing = await this.coreApi.readNamespacedSecret({ name: secretName, namespace });
+      const password = Buffer.from(existing.data.password, 'base64').toString('utf-8');
+      return { password, secretName, reused: true };
+    } catch (err) {
+      if (!isNotFoundError(err)) throw err;
+    }
+    // Generate a fresh random password — never the default; each branch is
+    // isolated, so cross-tenant connection attempts must fail.
+    const password = crypto.randomBytes(24).toString('hex');
+    await this.coreApi.createNamespacedSecret({
+      namespace,
+      body: {
+        metadata: {
+          name: secretName,
+          labels: {
+            'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+            'app.kubernetes.io/component': 'neon-compute-creds',
+            'multi-tenant-platform/compute': computeName,
+          },
+        },
+        type: 'Opaque',
+        stringData: { password },
+      },
+    });
+    return { password, secretName, reused: false };
+  }
+
+  /**
+   * Create a compute pod for a Neon branch.
+   * @param {Object} args
+   * @param {string} args.tenantId    Neon tenant UUID
+   * @param {string} args.timelineId  Neon timeline UUID (the actual branch)
+   * @param {string} args.computeName Stable name; used for ConfigMap/Deployment/Service/Secret
+   * @param {string} [args.namespace] Defaults to 'neon'
+   * @returns {Promise<{connectionString,host,port,username,password,databaseName}>}
+   */
+  async provisionNeonCompute({ tenantId, timelineId, computeName, namespace = 'neon' }) {
+    const ns = validateResourceName(namespace, 'namespace');
+    const name = validateResourceName(computeName, 'computeName');
+    const labels = {
+      'app.kubernetes.io/managed-by': 'multi-tenant-platform',
+      'app.kubernetes.io/component': 'neon-compute',
+      'multi-tenant-platform/compute': name,
+    };
+
+    // 1) Password (idempotent — reuses existing Secret if present).
+    // Postgres md5 auth stores hash as MD5(password + username); compute_ctl
+    // prepends 'md5' when writing into pg_authid. So `encrypted_password` in
+    // spec.json must be MD5(password + username), NOT MD5(password). The
+    // addon's example uses the latter and silently produces an unconnectable
+    // role — verified the hard way during smoketest.
+    const { password } = await this._ensureBranchPassword(name, ns);
+    const passwordHash = crypto.createHash('md5').update(password + 'cloud_admin').digest('hex');
+
+    // 2) ConfigMap with spec.json
+    const specJson = this._buildNeonComputeSpec({
+      tenantId, timelineId, computeName: name, passwordHash, namespace: ns,
+    });
+    const cmName = `${name}-spec`;
+    try {
+      await this.coreApi.createNamespacedConfigMap({
+        namespace: ns,
+        body: {
+          metadata: { name: cmName, labels },
+          data: { 'spec.json': specJson },
+        },
+      });
+    } catch (err) {
+      if (!isAlreadyExistsError(err)) throw err;
+      // Spec was already created (idempotent path). Update it in case
+      // tenant/timeline IDs or safekeeper topology changed.
+      await this.coreApi.replaceNamespacedConfigMap({
+        name: cmName, namespace: ns,
+        body: { metadata: { name: cmName, labels }, data: { 'spec.json': specJson } },
+      });
+    }
+
+    // 3) Deployment
+    const deployBody = {
+      metadata: { name, labels },
+      spec: {
+        replicas: 1,
+        selector: { matchLabels: { app: name } },
+        strategy: { type: 'Recreate' }, // Single replica + ephemeral pgdata
+        template: {
+          metadata: { labels: { ...labels, app: name } },
+          spec: {
+            // compute_ctl wrapper does chown /data; must run as root. It
+            // then `su - postgres -c …` for the actual Postgres process.
+            securityContext: { runAsUser: 0, runAsGroup: 0 },
+            containers: [{
+              name: 'compute',
+              image: 'perconalab/neon:pg14-1.0.0',
+              command: ['bash', '-c'],
+              args: [[
+                'set -ex',
+                'mkdir -p /data/pgdata',
+                'chown -R postgres:postgres /data',
+                // Real binary locations in perconalab/neon (NOT /usr/local/bin
+                // as the addon's README example suggests).
+                "exec su - postgres -c \"/opt/neondatabase-neon/target/release/compute_ctl --pgdata /data/pgdata -C 'postgresql://cloud_admin@localhost:55432/postgres' -b /opt/neondatabase-neon/pg_install/v14/bin/postgres -S /spec/spec.json\"",
+              ].join('\n')],
+              ports: [{ name: 'postgres', containerPort: 55432 }],
+              resources: {
+                requests: { cpu: '100m', memory: '256Mi' },
+                limits: { cpu: '1', memory: '2Gi' },
+              },
+              volumeMounts: [
+                { name: 'spec', mountPath: '/spec', readOnly: true },
+                { name: 'pgdata', mountPath: '/data' },
+              ],
+            }],
+            volumes: [
+              { name: 'spec', configMap: { name: cmName } },
+              { name: 'pgdata', emptyDir: {} }, // Ephemeral; durability lives in pageserver
+            ],
+          },
+        },
+      },
+    };
+    try {
+      await this.appsApi.createNamespacedDeployment({ namespace: ns, body: deployBody });
+    } catch (err) {
+      if (!isAlreadyExistsError(err)) throw err;
+      await this.appsApi.replaceNamespacedDeployment({ name, namespace: ns, body: deployBody });
+    }
+
+    // 4) Service
+    const svcBody = {
+      metadata: { name, labels },
+      spec: {
+        selector: { app: name },
+        ports: [{ name: 'postgres', port: 55432, targetPort: 55432 }],
+        type: 'ClusterIP',
+      },
+    };
+    try {
+      await this.coreApi.createNamespacedService({ namespace: ns, body: svcBody });
+    } catch (err) {
+      if (!isAlreadyExistsError(err)) throw err;
+      // Service spec rarely changes; only patch on conflict if it does.
+    }
+
+    const host = `${name}.${ns}.svc.cluster.local`;
+    const port = 55432;
+    return {
+      connectionString: `postgres://cloud_admin:${password}@${host}:${port}/postgres`,
+      host,
+      port,
+      username: 'cloud_admin',
+      password,
+      databaseName: 'postgres',
+    };
+  }
+
+  /** Tear down a Neon compute pod and all its resources. */
+  async tearDownNeonCompute({ computeName, namespace = 'neon' }) {
+    const ns = validateResourceName(namespace, 'namespace');
+    const name = validateResourceName(computeName, 'computeName');
+    // Order: service first (drop traffic), then workload, then config + secret.
+    const ignoreNotFound = async (fn) => {
+      try { await fn(); } catch (err) { if (!isNotFoundError(err)) throw err; }
+    };
+    await ignoreNotFound(() => this.coreApi.deleteNamespacedService({ name, namespace: ns }));
+    await ignoreNotFound(() => this.appsApi.deleteNamespacedDeployment({ name, namespace: ns }));
+    await ignoreNotFound(() => this.coreApi.deleteNamespacedConfigMap({ name: `${name}-spec`, namespace: ns }));
+    await ignoreNotFound(() => this.coreApi.deleteNamespacedSecret({ name: `${name}-creds`, namespace: ns }));
+    this.log.info({ computeName: name, namespace: ns }, 'Neon compute torn down');
   }
 }
 
