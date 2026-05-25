@@ -76,3 +76,25 @@ spec:
     name: http
   selector:
     app: platform-backend
+---
+# Alias Service: the platform-frontend image's nginx config hardcodes
+# upstream "tenantflow-backend" (image was built against an older Service
+# name). Rather than rebuild the image, expose the same backend pods under
+# both names. Same selector, same endpoints.
+# See memory: service-alias-for-upstream-typos
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenantflow-backend
+  namespace: multi-tenant-platform
+  labels:
+    purpose: nginx-upstream-alias
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: platform-backend
