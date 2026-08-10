@@ -4,13 +4,11 @@ metadata:
   name: platform-ingress
   namespace: multi-tenant-platform
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
-  ingressClassName: nginx
+  ingressClassName: traefik
   rules:
-  - host: k8s-platform.yourdomain.com
+  - host: k8s-platform.el-jefe.me
     http:
       paths:
       - path: /api
@@ -29,5 +27,5 @@ spec:
               number: 80
   tls:
   - hosts:
-    - k8s-platform.yourdomain.com
+    - k8s-platform.el-jefe.me
     secretName: platform-tls
