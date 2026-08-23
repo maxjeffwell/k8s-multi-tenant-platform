@@ -25,7 +25,28 @@ spec:
             name: platform-frontend
             port:
               number: 80
+  # tenantflow.el-jefe.me is the original public hostname — kept as an alias
+  # of the platform UI (it used to point at a long-gone tenantflow-frontend
+  # in the default namespace via portfolio-orchestration-ingress).
+  - host: tenantflow.el-jefe.me
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: platform-backend
+            port:
+              number: 3000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: platform-frontend
+            port:
+              number: 80
   tls:
   - hosts:
     - k8s-platform.el-jefe.me
+    - tenantflow.el-jefe.me
     secretName: platform-tls
