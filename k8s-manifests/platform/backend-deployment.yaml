@@ -38,7 +38,11 @@ spec:
           value: "http://tenantflow-neon-neon-pageserver-headless.neon.svc.cluster.local:9898"
         resources:
           requests:
-            cpu: 100m
+            # 50m not 100m: 7-day p50 across all 7 replicas ranges 2.9-19.2m, so
+            # 100m reserved ~5x typical usage on every node one lands on. The 500m
+            # limit still covers bursts -- requests never cap CPU, they only reserve.
+            # Memory deliberately left at 128Mi: 7-day peak is 119Mi, already correct.
+            cpu: 50m
             memory: 128Mi
           limits:
             cpu: 500m
