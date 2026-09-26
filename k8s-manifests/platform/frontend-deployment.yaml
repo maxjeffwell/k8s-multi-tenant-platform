@@ -17,6 +17,14 @@ spec:
         app: platform-frontend
         component: ui
     spec:
+      # Static frontend runs on the edge node next to Traefik
+      nodeSelector:
+        role: edge
+      tolerations:
+      - key: role
+        operator: Equal
+        value: edge
+        effect: PreferNoSchedule
       containers:
       - name: frontend
         image: maxjeffwell/tenantflow-frontend:20260517-173541-7b0ad5f
