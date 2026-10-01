@@ -2161,7 +2161,10 @@ ${proxyLocationBlock}
             securityContext: { runAsUser: 0, runAsGroup: 0 },
             containers: [{
               name: 'compute',
-              image: 'perconalab/neon:pg14-1.0.0',
+              // Same image as the template compute (tenantflow-neon): stock
+              // perconalab/neon lacks pgvector, which the template's
+              // bookmarked database needs (vector column + HNSW index).
+              image: 'maxjeffwell/neon-custom:pg14-1.0.0',
               command: ['bash', '-c'],
               args: [[
                 'set -ex',
