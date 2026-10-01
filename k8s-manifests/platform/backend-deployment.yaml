@@ -36,6 +36,12 @@ spec:
         # Self-hosted Neon pageserver for tenant branching.
         - name: PAGESERVER_URL
           value: "http://tenantflow-neon-neon-pageserver-headless.neon.svc.cluster.local:9898"
+        # Template every tenant branch forks from (main timeline, built by
+        # neon-template-bootstrap.yaml).
+        - name: NEON_TEMPLATE_TENANT_ID
+          value: "77a948ddeeb9fc8fd31daad9bdc4bea7"
+        - name: NEON_TEMPLATE_TIMELINE_ID
+          value: "01ee6c87fb000f298c1b0b0904ca461e"
         resources:
           requests:
             # 50m not 100m: 7-day p50 across all 7 replicas ranges 2.9-19.2m, so

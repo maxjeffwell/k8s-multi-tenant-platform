@@ -4,6 +4,14 @@ import * as k8s from '@kubernetes/client-node';
 import { createLogger } from '../utils/logger.js';
 import neonService from './neonService.js';
 
+// Postgres apps whose database lives on the tenant's Neon branch. The names
+// are databases in the TenantFlow template (k8s-manifests/platform/
+// neon-template-bootstrap.yaml), so every branch starts with schema + seed.
+const NEON_APP_DATABASES = {
+  'postgres-neon': 'bookmarked',
+  'postgres-codetalk': 'codetalk',
+};
+
 // Default logger - can be overridden via dependency injection for testing
 const defaultLog = createLogger('k8s-service');
 
@@ -299,11 +307,9 @@ class K8sService {
             labelSelector = 'app=mongodb-intervalai';
             break;
           case 'postgres-codetalk':
-            labelSelector = 'app=postgresql-codetalk';
-            break;
           case 'postgres-neon':
-            // Neon is external, skip pod check
-            results.checks.push({ name: 'databasePods', status: 'skipped', message: 'Neon is external database' });
+            // Data lives on the tenant's own Neon branch (checked below).
+            results.checks.push({ name: 'databasePods', status: 'skipped', message: 'App database is the tenant Neon branch' });
             skipCheck = true;
             break;
           case 'firebook-db':
@@ -334,6 +340,15 @@ class K8sService {
         results.checks.push({ name: 'databasePods', status: 'error', message: error.message });
         results.errors.push(`Failed to check database pods: ${error.message}`);
       }
+    }
+
+    // 2b. Every tenant gets a Neon branch of the template: Neon must be configured.
+    if (neonService.isConfigured()) {
+      results.checks.push({ name: 'neonBranching', status: 'passed', message: 'Neon template branching configured' });
+    } else {
+      results.passed = false;
+      results.checks.push({ name: 'neonBranching', status: 'failed', message: 'Neon template branching not configured' });
+      results.errors.push('Neon not configured: PAGESERVER_URL, NEON_TEMPLATE_TENANT_ID and NEON_TEMPLATE_TIMELINE_ID are required');
     }
 
     // 3. Check TLS secret exists (or can be created)
@@ -545,7 +560,17 @@ class K8sService {
               { protocol: 'TCP', port: 4000 }    // LiteLLM
             ]
           },
-          // Allow external HTTPS (for Neon, Firebase, external APIs)
+          // Tenant Neon branch compute (ns neon, :55432)
+          {
+            to: [{ namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'neon' } } }],
+            ports: [{ protocol: 'TCP', port: 55432 }]
+          },
+          // OVMS embeddings (bookmarked semantic search)
+          {
+            to: [{ namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'ovms' } } }],
+            ports: [{ protocol: 'TCP', port: 8000 }]
+          },
+          // Allow external HTTPS (for Firebase, external APIs)
           {
             to: [{ ipBlock: { cidr: '0.0.0.0/0', except: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'] } }],
             ports: [
@@ -673,8 +698,69 @@ class K8sService {
     return { ready: allReady, deployments: results };
   }
 
-  // Get credentials from the shared platform secret
+  /**
+   * Database credentials for a tenant app.
+   *
+   * Every tenant gets its own Neon branch (child timeline of the TenantFlow
+   * template, see neonService). Postgres apps get their app database ON the
+   * branch (NEON_APP_DATABASES); every other app keeps its own database and
+   * additionally receives the branch as NEON_DATABASE_URL (database postgres).
+   * There is no fallback: if the branch cannot be provisioned, tenant creation
+   * fails and is rolled back (never pointed at a production database).
+   */
   async getSharedDatabaseCredentials(databaseKey, namespace = null) {
+    const creds = await this._getAppDatabaseCredentials(databaseKey, namespace);
+    if (!namespace) return creds;
+
+    const branchDb = NEON_APP_DATABASES[databaseKey];
+    const { branchInfo, compute } = await this.provisionTenantBranch(namespace, branchDb || 'postgres');
+    const neonExtra = {
+      'NEON_DATABASE_URL': compute.connectionString,
+      'NEON_DATABASE': compute.databaseName,
+      'NEON_TENANT_ID': branchInfo.tenantId,
+      'NEON_TIMELINE_ID': branchInfo.timelineId,
+      'NEON_COMPUTE_HOST': compute.host,
+      'NEON_COMPUTE_PORT': String(compute.port),
+    };
+    if (branchDb) {
+      return {
+        connectionString: compute.connectionString,
+        username: compute.username,
+        password: compute.password,
+        databaseName: compute.databaseName,
+        extraData: { ...(creds.extraData || {}), ...neonExtra },
+      };
+    }
+    return { ...creds, extraData: { ...(creds.extraData || {}), ...neonExtra } };
+  }
+
+  /**
+   * Create (or reuse) the tenant's Neon branch and its compute, and wait
+   * until the compute accepts connections.
+   */
+  async provisionTenantBranch(namespace, databaseName = 'postgres') {
+    if (!neonService.isConfigured()) {
+      throw new Error('Neon not configured; every tenant needs a Neon branch');
+    }
+    this.log.info({ namespace, databaseName }, 'Creating Neon branch for tenant');
+    const branchInfo = await neonService.createTenantBranch(namespace);
+    const computeName = `compute-${namespace}`;
+    const compute = await this.provisionNeonCompute({
+      tenantId: branchInfo.tenantId,
+      timelineId: branchInfo.timelineId,
+      computeName,
+      databaseName,
+    });
+    const readiness = await this.waitForDeploymentReady('neon', computeName, 180000);
+    if (!readiness?.ready) {
+      throw new Error(`Neon compute ${computeName} not ready: ${readiness?.error || 'timeout'}`);
+    }
+    this.log.info({ namespace, computeName, tenantId: branchInfo.tenantId, timelineId: branchInfo.timelineId }, 'Neon branch + compute ready');
+    return { branchInfo, compute };
+  }
+
+  // App-specific credentials from the shared platform secret (no Neon branch).
+  async _getAppDatabaseCredentials(databaseKey, namespace = null) {
     try {
       // Read the master secret from default namespace
       // Using 'production-db-credentials' to avoid conflict with ArgoCD managed 'tenantflow-db-credentials'
@@ -749,46 +835,16 @@ class K8sService {
             'AI_FEATURES_ENABLED': 'true',
             'AI_CACHE_ENABLED': 'true',
             'USE_LOCAL_AI': 'true',
-            'LOCAL_AI_URL': 'http://shared-ai-gateway-service.default.svc.cluster.local:8002',
+            'LOCAL_AI_URL': 'http://shared-ai-gateway.default.svc.cluster.local:8002',
             'LOCAL_AI_ENDPOINT': '/api/ai/generate',
+            // Semantic search: same OVMS model as production bookmarked.
+            'EMBEDDING_URL': 'http://ovms-embeddings.ovms.svc.cluster.local:8000',
+            'EMBEDDING_MODEL': 'qwen3-embedding-0.6b',
             'REACT_APP_API_BASE_URL': decode(data['REACT_APP_API_BASE_URL'])
           };
 
-          // Self-hosted Neon branching for tenant isolation: (1) create tenant
-          // + main timeline on the pageserver, (2) provision a per-branch
-          // compute pod that serves a real Postgres :55432 endpoint.
-          if (namespace && neonService.isConfigured()) {
-            try {
-              this.log.info({ namespace }, 'Creating Neon branch for tenant');
-              const branchInfo = await neonService.createTenantBranch(namespace);
-              const computeName = `compute-${namespace}`;
-              const compute = await this.provisionNeonCompute({
-                tenantId: branchInfo.tenantId,
-                timelineId: branchInfo.timelineId,
-                computeName,
-                namespace: branchInfo.namespace || 'neon',
-              });
-              this.log.info({ namespace, computeName, tenantId: branchInfo.tenantId, timelineId: branchInfo.timelineId }, 'Neon compute provisioned');
-              return {
-                connectionString: compute.connectionString,
-                username: compute.username,
-                password: compute.password,
-                databaseName: compute.databaseName,
-                extraData: {
-                  ...extraData,
-                  'NEON_TENANT_ID': branchInfo.tenantId,
-                  'NEON_TIMELINE_ID': branchInfo.timelineId,
-                  'NEON_COMPUTE_HOST': compute.host,
-                  'NEON_COMPUTE_PORT': String(compute.port),
-                  'NEON_BRANCH_ID': branchInfo.branchId,      // back-compat
-                  'NEON_BRANCH_NAME': branchInfo.branchName,  // back-compat
-                }
-              };
-            } catch (branchError) {
-              this.log.warn({ err: branchError, namespace }, 'Failed to create Neon branch, falling back to shared database');
-              // Fall through to default behavior
-            }
-          }
+          // The connection itself is the tenant's Neon branch (database
+          // `bookmarked`), filled in by getSharedDatabaseCredentials.
           break;
         case 'firebook-db':
           // Firebook uses Firebase + Algolia
@@ -2049,7 +2105,7 @@ ${proxyLocationBlock}
    * @param {string} [args.namespace] Defaults to 'neon'
    * @returns {Promise<{connectionString,host,port,username,password,databaseName}>}
    */
-  async provisionNeonCompute({ tenantId, timelineId, computeName, namespace = 'neon' }) {
+  async provisionNeonCompute({ tenantId, timelineId, computeName, namespace = 'neon', databaseName = 'postgres' }) {
     const ns = validateResourceName(namespace, 'namespace');
     const name = validateResourceName(computeName, 'computeName');
     const labels = {
@@ -2116,6 +2172,13 @@ ${proxyLocationBlock}
                 "exec su - postgres -c \"/opt/neondatabase-neon/target/release/compute_ctl --pgdata /data/pgdata -C 'postgresql://cloud_admin@localhost:55432/postgres' -b /opt/neondatabase-neon/pg_install/v14/bin/postgres -S /spec/spec.json\"",
               ].join('\n')],
               ports: [{ name: 'postgres', containerPort: 55432 }],
+              // Ready only once compute_ctl has started Postgres from the branch.
+              readinessProbe: {
+                tcpSocket: { port: 55432 },
+                initialDelaySeconds: 3,
+                periodSeconds: 3,
+                failureThreshold: 60,
+              },
               resources: {
                 requests: { cpu: '100m', memory: '256Mi' },
                 limits: { cpu: '1', memory: '2Gi' },
@@ -2159,12 +2222,12 @@ ${proxyLocationBlock}
     const host = `${name}.${ns}.svc.cluster.local`;
     const port = 55432;
     return {
-      connectionString: `postgres://cloud_admin:${password}@${host}:${port}/postgres`,
+      connectionString: `postgres://cloud_admin:${password}@${host}:${port}/${databaseName}`,
       host,
       port,
       username: 'cloud_admin',
       password,
-      databaseName: 'postgres',
+      databaseName,
     };
   }
 

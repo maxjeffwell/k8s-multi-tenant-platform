@@ -47,8 +47,10 @@ const DEFAULT_APP_CONFIGS = {
     apiPaths: ['/graphql', '/socket.io']  // Routes needed by Code Talk's frontend
   },
   'bookmarked': {
-    serverImage: 'maxjeffwell/bookmarks-react-hooks-server:20260118-102929-cef4762',
-    clientImage: 'maxjeffwell/bookmarks-react-hooks-client:20260118-104338-cef4762',
+    // Same build as production bookmarked. Images before 2026-08-24 used the
+    // Neon HTTP driver, which cannot talk to a self-hosted Neon compute.
+    serverImage: 'maxjeffwell/bookmarks-react-hooks-server:20261001-201111-e5991e7',
+    clientImage: 'maxjeffwell/bookmarks-react-hooks-client:20261001-201111-e5991e7',
     serverPort: 8000,
     clientPort: 80,
     dbKey: 'postgres-neon',
@@ -237,7 +239,8 @@ class TenantController {
         if (appType === 'code-talk') {
           const jwtSecret = crypto.randomBytes(32).toString('hex');
           deployConfig.env.push(
-            { name: 'DATABASE_URL', value: 'postgres://codetalk_user:codetalk_postgres123@postgresql-codetalk.default.svc.cluster.local:5432/codetalk' },
+            // DATABASE_URL comes from the tenant DB secret: database `codetalk`
+            // on the tenant's Neon branch (an explicit env here would override it).
             { name: 'JWT_SECRET', value: jwtSecret },
             // Note: Don't set REDIS_URL - Code Talk's subscription module incorrectly enables TLS when REDIS_URL is set
             // Using individual REDIS_* vars instead to use the non-TLS code path
@@ -299,30 +302,11 @@ class TenantController {
           }
         }
 
-        // Seed PostgreSQL database for Code Talk
-        if (databaseKey === 'postgres-codetalk') {
-          try {
-            log.info({ tenantName, databaseKey }, 'Seeding demo data into PostgreSQL database');
-            const connectionString = 'postgres://codetalk_user:codetalk_postgres123@postgresql-codetalk.default.svc.cluster.local:5432/codetalk';
-            const seedResult = await seedService.seedPostgresDatabase(connectionString, {
-              demoUsers: [
-                { username: 'demo', email: 'demo@demo.example', password: 'demopassword' },
-                { username: 'demo2', email: 'demo2@demo.example', password: 'demopassword' }
-              ],
-              defaultRooms: [
-                'General Discussion',
-                'JavaScript Help',
-                'React Development',
-                'Node.js Backend'
-              ]
-            });
-            response.seedData = seedResult;
-            log.info({ tenantName, seedResult }, 'PostgreSQL demo data seeded successfully');
-          } catch (seedError) {
-            // Non-fatal - log warning but don't fail tenant creation
-            log.warn({ err: seedError, tenantName }, 'Failed to seed PostgreSQL demo data');
-            response.seedData = { error: seedError.message };
-          }
+        // Postgres apps (bookmarked, code-talk) need no seeding: their database
+        // on the tenant's Neon branch starts as a copy of the TenantFlow
+        // template, which already holds schema + demo data.
+        if (databaseKey === 'postgres-neon' || databaseKey === 'postgres-codetalk') {
+          response.seedData = { source: 'neon-template' };
         }
 
         // ========== STEP 7: Create unified ingress ==========

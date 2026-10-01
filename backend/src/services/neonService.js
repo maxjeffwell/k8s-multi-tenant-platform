@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { KubeConfig, CoreV1Api } from '@kubernetes/client-node';
 import { createLogger } from '../utils/logger.js';
 
@@ -7,10 +8,18 @@ const log = createLogger('neon-service');
  * NeonService — branch lifecycle against the self-hosted KubeBlocks Neon
  * pageserver (replaces the previous Neon Cloud API integration).
  *
- * Model:
- *   tenantflow tenant name  ─┐
- *                            ├── pageserver tenant_id (one per tenantflow tenant)
- *                            └── pageserver timeline_id (the tenant's "main" branch)
+ * Model (2026-10-01): every TenantFlow tenant gets a Neon BRANCH, i.e. a
+ * child timeline of ONE template timeline:
+ *
+ *   template tenant (NEON_TEMPLATE_TENANT_ID)
+ *     └── main timeline (NEON_TEMPLATE_TIMELINE_ID)  ← built by the
+ *           │   neon-template-bootstrap Job: databases `bookmarked`,
+ *           │   `codetalk` with schema + demo seed
+ *           ├── branch timeline for tenant A  (copy-on-write)
+ *           └── branch timeline for tenant B
+ *
+ * A branch starts as an instant copy of the template and only stores its own
+ * changes. Branches already created keep the template as it was then.
  *
  * Tenant_name → (tenant_id, timeline_id) mapping is persisted in a K8s
  * ConfigMap so this service is stateless. Compute-pod provisioning (the
@@ -19,6 +28,8 @@ const log = createLogger('neon-service');
  *
  * Env:
  *   PAGESERVER_URL              e.g. http://tenantflow-neon-neon-pageserver-headless.neon.svc.cluster.local:9898
+ *   NEON_TEMPLATE_TENANT_ID     pageserver tenant holding the template timeline
+ *   NEON_TEMPLATE_TIMELINE_ID   the template ("main") timeline every branch forks from
  *   NEON_NAMESPACE              defaults to 'neon'
  *   NEON_PG_VERSION             defaults to 14
  */
@@ -32,6 +43,8 @@ class NeonService {
     this.pageserverUrl = process.env.PAGESERVER_URL;
     this.neonNamespace = process.env.NEON_NAMESPACE || DEFAULT_NEON_NAMESPACE;
     this.pgVersion = parseInt(process.env.NEON_PG_VERSION || DEFAULT_PG_VERSION, 10);
+    this.templateTenantId = process.env.NEON_TEMPLATE_TENANT_ID;
+    this.templateTimelineId = process.env.NEON_TEMPLATE_TIMELINE_ID;
 
     const kc = new KubeConfig();
     try {
@@ -43,7 +56,7 @@ class NeonService {
   }
 
   isConfigured() {
-    return !!this.pageserverUrl;
+    return !!(this.pageserverUrl && this.templateTenantId && this.templateTimelineId);
   }
 
   /**
@@ -52,7 +65,7 @@ class NeonService {
    */
   async pageserverRequest(method, path, body = null) {
     if (!this.isConfigured()) {
-      throw new Error('PAGESERVER_URL not set; cannot reach Neon pageserver.');
+      throw new Error('Neon not configured: PAGESERVER_URL, NEON_TEMPLATE_TENANT_ID and NEON_TEMPLATE_TIMELINE_ID are required.');
     }
     const opts = {
       method,
@@ -108,7 +121,8 @@ class NeonService {
 
   /**
    * Idempotent: if the tenant already has an entry, return it; otherwise
-   * create tenant + main timeline on the pageserver and persist the mapping.
+   * branch the template timeline (child timeline with ancestor = template)
+   * and persist the mapping.
    *
    * Returns:
    *   {
@@ -130,26 +144,35 @@ class NeonService {
       return this._shapeResult(tenantName, tenantId, timelineId, { reused: true });
     }
 
-    log.info({ tenantName }, 'creating new Neon tenant + timeline');
-    const tenantIdRaw = await this.pageserverRequest('POST', '/v1/tenant/', {});
-    const tenantId = String(tenantIdRaw).replace(/"/g, '');
+    const tenantId = this.templateTenantId;
+    log.info({ tenantName, tenantId, ancestor: this.templateTimelineId }, 'branching Neon template timeline');
 
     const timeline = await this.pageserverRequest(
       'POST',
       `/v1/tenant/${tenantId}/timeline/`,
-      { tenant_id: tenantId, pg_version: this.pgVersion },
+      {
+        new_timeline_id: crypto.randomBytes(16).toString('hex'),
+        ancestor_timeline_id: this.templateTimelineId,
+        pg_version: this.pgVersion,
+      },
     );
     const timelineId = timeline.timeline_id;
+    if (!timelineId) {
+      throw new Error(`pageserver did not return a timeline_id: ${JSON.stringify(timeline)}`);
+    }
 
     const next = {
       ...map.data,
       [tenantName]: JSON.stringify({
-        tenantId, timelineId, createdAt: new Date().toISOString(),
+        tenantId,
+        timelineId,
+        ancestorTimelineId: this.templateTimelineId,
+        createdAt: new Date().toISOString(),
       }),
     };
     await this._writeTenantMap(next, map.resourceVersion);
 
-    log.info({ tenantName, tenantId, timelineId }, 'Neon tenant + timeline created');
+    log.info({ tenantName, tenantId, timelineId }, 'Neon branch created from template');
     return this._shapeResult(tenantName, tenantId, timelineId, { reused: false });
   }
 
@@ -166,6 +189,11 @@ class NeonService {
       return false;
     }
     const { tenantId, timelineId } = JSON.parse(raw);
+
+    // Never delete the template itself, whatever the mapping says.
+    if (timelineId === this.templateTimelineId) {
+      throw new Error(`refusing to delete the template timeline ${timelineId}`);
+    }
 
     // Best-effort delete of the timeline. Pageserver tenant deletion is a
     // separate, harder operation we leave alone here (keeps the data
