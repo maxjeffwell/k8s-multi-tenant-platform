@@ -79,7 +79,7 @@ spec:
       serviceAccountName: tenantflow-backend
       containers:
       - name: backend
-        image: maxjeffwell/tenantflow-backend:20261001-211319-b2c8e14
+        image: maxjeffwell/tenantflow-backend:20261001-212458-340813c
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
@@ -277,7 +277,7 @@ spec:
       priorityClassName: portfolio-app
       containers:
       - name: frontend
-        image: maxjeffwell/tenantflow-frontend:20261001-211319-b2c8e14
+        image: maxjeffwell/tenantflow-frontend:20261001-212458-340813c
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
@@ -312,7 +312,7 @@ spec:
 
       initContainers:
       - name: patch-config
-        image: maxjeffwell/tenantflow-frontend:20261001-211319-b2c8e14
+        image: maxjeffwell/tenantflow-frontend:20261001-212458-340813c
         command: ["/bin/sh", "-c"]
         args:
           - |
