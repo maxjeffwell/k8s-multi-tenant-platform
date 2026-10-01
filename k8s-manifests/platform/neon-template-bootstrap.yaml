@@ -1,0 +1,822 @@
+# TenantFlow Neon template (2026-10-01): every TenantFlow tenant gets its own
+# Neon BRANCH (child timeline) of the main timeline of tenantflow-neon (ns neon).
+# This Job builds that template on main: one database per Postgres app, with the
+# app's schema (structure only, exported from production) and demo seed data.
+#   bookmarked  <- cnpg-bookmarked neondb: bookmarks, tags, bookmark_tags, users,
+#                  refresh_tokens, ai_tag_cache (+ pgvector, search trigger);
+#                  demo / demo123
+#   codetalk    <- cnpg-codetalk codetalk: users, rooms, user_rooms, messages;
+#                  demo, demo2 / demopassword
+# Bump TEMPLATE_VERSION after changing the SQL to rebuild the template. The SQL
+# runs via kubectl exec as cloud_admin (local trust only, no network password).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: neon-template-bootstrap
+  namespace: neon
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: neon-template-bootstrap
+  namespace: neon
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  resourceNames:
+  - tenantflow-neon-neon-compute-0
+  verbs:
+  - get
+- apiGroups:
+  - ''
+  resources:
+  - pods/exec
+  resourceNames:
+  - tenantflow-neon-neon-compute-0
+  verbs:
+  - create
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: neon-template-bootstrap
+  namespace: neon
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: neon-template-bootstrap
+subjects:
+- kind: ServiceAccount
+  name: neon-template-bootstrap
+  namespace: neon
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neon-template-sql
+  namespace: neon
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    # Builds / refreshes the TenantFlow Neon template: databases on the MAIN
+    # timeline of tenantflow-neon that every tenant branch is created from.
+    # A database is (re)built only when its TEMPLATE_VERSION changed; existing
+    # tenant branches are separate timelines and are never touched.
+    set -eu
+    POD="${COMPUTE_POD}"
+    psql_c() { kubectl -n neon exec -i "$POD" -- psql -h localhost -p 55432 -U cloud_admin -X -q -v ON_ERROR_STOP=1 "$@"; }
+
+    for i in $(seq 1 60); do
+      [ "$(kubectl -n neon get pod "$POD" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null)" = "true" ] && break
+      echo "waiting for $POD ($i)"; sleep 5
+    done
+
+    psql_c -d postgres -c "CREATE TABLE IF NOT EXISTS tenantflow_template (dbname text PRIMARY KEY, version integer NOT NULL, built_at timestamptz NOT NULL DEFAULT now())"
+
+    for db in bookmarked codetalk; do
+      have=$(psql_c -d postgres -At -c "SELECT version FROM tenantflow_template WHERE dbname='$db' AND EXISTS (SELECT 1 FROM pg_database WHERE datname='$db')")
+      if [ "$have" = "$TEMPLATE_VERSION" ]; then
+        echo "$db: template v$have is current, skipping"
+        continue
+      fi
+      echo "$db: building template v$TEMPLATE_VERSION (was: ${have:-none})"
+      psql_c -d postgres -c "DROP DATABASE IF EXISTS $db WITH (FORCE)" -c "CREATE DATABASE $db"
+      psql_c -d "$db" < "/template/$db.sql"
+      psql_c -d postgres -c "INSERT INTO tenantflow_template (dbname, version) VALUES ('$db', $TEMPLATE_VERSION) ON CONFLICT (dbname) DO UPDATE SET version = EXCLUDED.version, built_at = now()"
+    done
+
+    psql_c -d postgres -At -c "SELECT 'template ' || dbname || ' v' || version || ' built ' || built_at FROM tenantflow_template ORDER BY dbname"
+  bookmarked.sql: |
+    -- TenantFlow template: database "bookmarked" (schema from cnpg-bookmarked neondb, structure only)
+    CREATE EXTENSION IF NOT EXISTS vector;
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE OR REPLACE FUNCTION public.bookmarks_search_vector_update()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+            BEGIN
+              NEW.search_vector :=
+                setweight(to_tsvector('english', COALESCE(NEW.title, '')), 'A') ||
+                setweight(to_tsvector('english', COALESCE(NEW.url, '')), 'B') ||
+                setweight(to_tsvector('english', COALESCE(NEW.description, '')), 'C');
+              RETURN NEW;
+            END;
+            $function$
+    ;
+    CREATE OR REPLACE FUNCTION public.clean_old_ai_cache()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+          BEGIN
+            DELETE FROM ai_tag_cache
+            WHERE created_at < NOW() - INTERVAL '90 days';
+            RETURN NULL;
+          END;
+          $function$
+    ;
+
+    --
+    -- PostgreSQL database dump
+    --
+
+
+
+    SET statement_timeout = 0;
+    SET lock_timeout = 0;
+    SET idle_in_transaction_session_timeout = 0;
+    SET client_encoding = 'UTF8';
+    SET standard_conforming_strings = on;
+    SELECT pg_catalog.set_config('search_path', '', false);
+    SET check_function_bodies = false;
+    SET xmloption = content;
+    SET client_min_messages = warning;
+    SET row_security = off;
+
+    SET default_tablespace = '';
+
+    SET default_table_access_method = heap;
+
+    --
+    -- Name: ai_tag_cache; Type: TABLE; Schema: public; Owner: -
+    --
+
+    CREATE TABLE public.ai_tag_cache (
+        id uuid DEFAULT gen_random_uuid() NOT NULL,
+        content_hash character varying(64) NOT NULL,
+        tags text[] NOT NULL,
+        model_version character varying(50) NOT NULL,
+        created_at timestamp with time zone DEFAULT now(),
+        used_count integer DEFAULT 1
+    );
+
+
+    --
+    -- Name: bookmark_tags; Type: TABLE; Schema: public; Owner: -
+    --
+
+    CREATE TABLE public.bookmark_tags (
+        bookmark_id uuid NOT NULL,
+        tag_id uuid NOT NULL,
+        created_at timestamp with time zone DEFAULT now()
+    );
+
+
+    --
+    -- Name: bookmarks; Type: TABLE; Schema: public; Owner: -
+    --
+
+    CREATE TABLE public.bookmarks (
+        id uuid DEFAULT gen_random_uuid() NOT NULL,
+        title character varying(255) NOT NULL,
+        url text NOT NULL,
+        description text DEFAULT ''::text,
+        rating text DEFAULT 0,
+        toggled_radio_button boolean DEFAULT false,
+        checked boolean DEFAULT false,
+        created_at timestamp with time zone DEFAULT now(),
+        updated_at timestamp with time zone DEFAULT now(),
+        search_vector tsvector,
+        embedding public.vector(1024),
+        firebase_uid text,
+        firebase_bookmark_id text,
+        user_id uuid
+    );
+
+
+    --
+    -- Name: refresh_tokens; Type: TABLE; Schema: public; Owner: -
+    --
+
+    CREATE TABLE public.refresh_tokens (
+        id uuid DEFAULT gen_random_uuid() NOT NULL,
+        user_id uuid NOT NULL,
+        token_hash character varying(255) NOT NULL,
+        expires_at timestamp with time zone NOT NULL,
+        created_at timestamp with time zone DEFAULT now()
+    );
+
+
+    --
+    -- Name: tags; Type: TABLE; Schema: public; Owner: -
+    --
+
+    CREATE TABLE public.tags (
+        id uuid DEFAULT gen_random_uuid() NOT NULL,
+        name character varying(100) NOT NULL,
+        created_at timestamp with time zone DEFAULT now(),
+        user_id uuid
+    );
+
+
+    --
+    -- Name: users; Type: TABLE; Schema: public; Owner: -
+    --
+
+    CREATE TABLE public.users (
+        id uuid DEFAULT gen_random_uuid() NOT NULL,
+        username character varying(50) NOT NULL,
+        email character varying(255) NOT NULL,
+        password character varying(255) NOT NULL,
+        role character varying(20) DEFAULT 'USER'::character varying,
+        created_at timestamp with time zone DEFAULT now(),
+        updated_at timestamp with time zone DEFAULT now()
+    );
+
+
+    --
+    -- Name: ai_tag_cache ai_tag_cache_content_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.ai_tag_cache
+        ADD CONSTRAINT ai_tag_cache_content_hash_key UNIQUE (content_hash);
+
+
+    --
+    -- Name: ai_tag_cache ai_tag_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.ai_tag_cache
+        ADD CONSTRAINT ai_tag_cache_pkey PRIMARY KEY (id);
+
+
+    --
+    -- Name: bookmark_tags bookmark_tags_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.bookmark_tags
+        ADD CONSTRAINT bookmark_tags_pkey PRIMARY KEY (bookmark_id, tag_id);
+
+
+    --
+    -- Name: bookmarks bookmarks_firebase_unique; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.bookmarks
+        ADD CONSTRAINT bookmarks_firebase_unique UNIQUE (firebase_uid, firebase_bookmark_id);
+
+
+    --
+    -- Name: bookmarks bookmarks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.bookmarks
+        ADD CONSTRAINT bookmarks_pkey PRIMARY KEY (id);
+
+
+    --
+    -- Name: refresh_tokens refresh_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.refresh_tokens
+        ADD CONSTRAINT refresh_tokens_pkey PRIMARY KEY (id);
+
+
+    --
+    -- Name: tags tags_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.tags
+        ADD CONSTRAINT tags_pkey PRIMARY KEY (id);
+
+
+    --
+    -- Name: tags tags_user_name_unique; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.tags
+        ADD CONSTRAINT tags_user_name_unique UNIQUE (user_id, name);
+
+
+    --
+    -- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.users
+        ADD CONSTRAINT users_email_key UNIQUE (email);
+
+
+    --
+    -- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.users
+        ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+    --
+    -- Name: users users_username_key; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.users
+        ADD CONSTRAINT users_username_key UNIQUE (username);
+
+
+    --
+    -- Name: bookmarks_embedding_hnsw_idx; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX bookmarks_embedding_hnsw_idx ON public.bookmarks USING hnsw (embedding public.vector_cosine_ops) WITH (m='16', ef_construction='64');
+
+
+    --
+    -- Name: bookmarks_search_idx; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX bookmarks_search_idx ON public.bookmarks USING gin (search_vector);
+
+
+    --
+    -- Name: bookmarks_url_idx; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX bookmarks_url_idx ON public.bookmarks USING btree (url);
+
+
+    --
+    -- Name: idx_ai_tag_cache_content_hash; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_ai_tag_cache_content_hash ON public.ai_tag_cache USING btree (content_hash);
+
+
+    --
+    -- Name: idx_ai_tag_cache_created_at; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_ai_tag_cache_created_at ON public.ai_tag_cache USING btree (created_at);
+
+
+    --
+    -- Name: idx_bookmark_tags_bookmark_id; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_bookmark_tags_bookmark_id ON public.bookmark_tags USING btree (bookmark_id);
+
+
+    --
+    -- Name: idx_bookmark_tags_tag_id; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_bookmark_tags_tag_id ON public.bookmark_tags USING btree (tag_id);
+
+
+    --
+    -- Name: idx_bookmarks_embedding_exists; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_bookmarks_embedding_exists ON public.bookmarks USING btree (((embedding IS NOT NULL))) WHERE (embedding IS NOT NULL);
+
+
+    --
+    -- Name: idx_bookmarks_firebase; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_bookmarks_firebase ON public.bookmarks USING btree (firebase_uid, firebase_bookmark_id);
+
+
+    --
+    -- Name: idx_bookmarks_user_id; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_bookmarks_user_id ON public.bookmarks USING btree (user_id);
+
+
+    --
+    -- Name: idx_refresh_tokens_expires; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_refresh_tokens_expires ON public.refresh_tokens USING btree (expires_at);
+
+
+    --
+    -- Name: idx_refresh_tokens_user_id; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_refresh_tokens_user_id ON public.refresh_tokens USING btree (user_id);
+
+
+    --
+    -- Name: idx_tags_name; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_tags_name ON public.tags USING btree (name);
+
+
+    --
+    -- Name: idx_tags_user_id; Type: INDEX; Schema: public; Owner: -
+    --
+
+    CREATE INDEX idx_tags_user_id ON public.tags USING btree (user_id);
+
+
+    --
+    -- Name: bookmarks bookmarks_search_vector_trigger; Type: TRIGGER; Schema: public; Owner: -
+    --
+
+    CREATE TRIGGER bookmarks_search_vector_trigger BEFORE INSERT OR UPDATE ON public.bookmarks FOR EACH ROW EXECUTE FUNCTION public.bookmarks_search_vector_update();
+
+
+    --
+    -- Name: ai_tag_cache trigger_clean_ai_cache; Type: TRIGGER; Schema: public; Owner: -
+    --
+
+    CREATE TRIGGER trigger_clean_ai_cache AFTER INSERT ON public.ai_tag_cache FOR EACH STATEMENT EXECUTE FUNCTION public.clean_old_ai_cache();
+
+
+    --
+    -- Name: bookmark_tags bookmark_tags_bookmark_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.bookmark_tags
+        ADD CONSTRAINT bookmark_tags_bookmark_id_fkey FOREIGN KEY (bookmark_id) REFERENCES public.bookmarks(id) ON DELETE CASCADE;
+
+
+    --
+    -- Name: bookmark_tags bookmark_tags_tag_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.bookmark_tags
+        ADD CONSTRAINT bookmark_tags_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES public.tags(id) ON DELETE CASCADE;
+
+
+    --
+    -- Name: bookmarks bookmarks_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.bookmarks
+        ADD CONSTRAINT bookmarks_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+    --
+    -- Name: refresh_tokens refresh_tokens_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.refresh_tokens
+        ADD CONSTRAINT refresh_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+    --
+    -- Name: tags tags_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.tags
+        ADD CONSTRAINT tags_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+    --
+    -- PostgreSQL database dump complete
+    --
+
+
+
+    -- ---------- seed (demo data; bookmarked's own convention demo / demo123) ----------
+    SELECT pg_catalog.set_config('search_path', 'public', false);
+    INSERT INTO users (username, email, password, role) VALUES ('demo', 'demo@example.com', '$2b$10$jnLflaVlCYxhXlptc75xD.pPg2VqNvzeUPapMymn82RrJPLPEIgnK', 'USER');
+    WITH u AS (SELECT id FROM users WHERE username = 'demo')
+    INSERT INTO bookmarks (title, url, description, rating, user_id)
+    SELECT b.title, b.url, b.description, b.rating, u.id FROM u, (VALUES
+      ('React Docs', 'https://react.dev', 'Official React documentation and tutorials', '5'),
+      ('PostgreSQL Docs', 'https://www.postgresql.org/docs/', 'PostgreSQL reference manual', '5'),
+      ('Kubernetes Docs', 'https://kubernetes.io/docs/', 'Concepts, tasks and reference for Kubernetes', '4'),
+      ('MDN Web Docs', 'https://developer.mozilla.org', 'HTML, CSS and JavaScript reference', '5'),
+      ('Neon', 'https://neon.com', 'Serverless Postgres with branching', '4')
+    ) AS b(title, url, description, rating);
+    WITH u AS (SELECT id FROM users WHERE username = 'demo')
+    INSERT INTO tags (name, user_id) SELECT t, u.id FROM u, unnest(ARRAY['docs','frontend','database','devops']) AS t;
+    INSERT INTO bookmark_tags (bookmark_id, tag_id)
+    SELECT b.id, t.id FROM bookmarks b JOIN tags t ON (b.title, t.name) IN
+      (('React Docs','docs'),('React Docs','frontend'),('PostgreSQL Docs','docs'),('PostgreSQL Docs','database'),
+       ('Kubernetes Docs','docs'),('Kubernetes Docs','devops'),('MDN Web Docs','frontend'),('Neon','database'));
+  codetalk.sql: |
+    -- TenantFlow template: database "codetalk" (schema from cnpg-codetalk codetalk, structure only)
+    CREATE TYPE public.enum_users_role AS ENUM ('USER', 'ADMIN');
+    --
+    -- PostgreSQL database dump
+    --
+
+
+
+    SET statement_timeout = 0;
+    SET lock_timeout = 0;
+    SET idle_in_transaction_session_timeout = 0;
+    SET client_encoding = 'UTF8';
+    SET standard_conforming_strings = on;
+    SELECT pg_catalog.set_config('search_path', '', false);
+    SET check_function_bodies = false;
+    SET xmloption = content;
+    SET client_min_messages = warning;
+    SET row_security = off;
+
+    SET default_tablespace = '';
+
+    SET default_table_access_method = heap;
+
+    --
+    -- Name: messages; Type: TABLE; Schema: public; Owner: -
+    --
+
+    CREATE TABLE public.messages (
+        id integer NOT NULL,
+        text character varying(255) NOT NULL,
+        "roomId" integer,
+        "createdAt" timestamp with time zone NOT NULL,
+        "updatedAt" timestamp with time zone NOT NULL,
+        "userId" integer
+    );
+
+
+    --
+    -- Name: messages_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+    --
+
+    CREATE SEQUENCE public.messages_id_seq
+        AS integer
+        START WITH 1
+        INCREMENT BY 1
+        NO MINVALUE
+        NO MAXVALUE
+        CACHE 1;
+
+
+    --
+    -- Name: messages_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+    --
+
+    ALTER SEQUENCE public.messages_id_seq OWNED BY public.messages.id;
+
+
+    --
+    -- Name: rooms; Type: TABLE; Schema: public; Owner: -
+    --
+
+    CREATE TABLE public.rooms (
+        id integer NOT NULL,
+        title character varying(255) NOT NULL,
+        "createdAt" timestamp with time zone NOT NULL,
+        "updatedAt" timestamp with time zone NOT NULL
+    );
+
+
+    --
+    -- Name: rooms_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+    --
+
+    CREATE SEQUENCE public.rooms_id_seq
+        AS integer
+        START WITH 1
+        INCREMENT BY 1
+        NO MINVALUE
+        NO MAXVALUE
+        CACHE 1;
+
+
+    --
+    -- Name: rooms_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+    --
+
+    ALTER SEQUENCE public.rooms_id_seq OWNED BY public.rooms.id;
+
+
+    --
+    -- Name: user_rooms; Type: TABLE; Schema: public; Owner: -
+    --
+
+    CREATE TABLE public.user_rooms (
+        "createdAt" timestamp with time zone NOT NULL,
+        "updatedAt" timestamp with time zone NOT NULL,
+        "userId" integer NOT NULL,
+        "roomId" integer NOT NULL
+    );
+
+
+    --
+    -- Name: users; Type: TABLE; Schema: public; Owner: -
+    --
+
+    CREATE TABLE public.users (
+        id integer NOT NULL,
+        username character varying(255) NOT NULL,
+        email character varying(255) NOT NULL,
+        password character varying(255) NOT NULL,
+        role public.enum_users_role DEFAULT 'USER'::public.enum_users_role NOT NULL,
+        "createdAt" timestamp with time zone NOT NULL,
+        "updatedAt" timestamp with time zone NOT NULL
+    );
+
+
+    --
+    -- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+    --
+
+    CREATE SEQUENCE public.users_id_seq
+        AS integer
+        START WITH 1
+        INCREMENT BY 1
+        NO MINVALUE
+        NO MAXVALUE
+        CACHE 1;
+
+
+    --
+    -- Name: users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+    --
+
+    ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
+
+
+    --
+    -- Name: messages id; Type: DEFAULT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.messages ALTER COLUMN id SET DEFAULT nextval('public.messages_id_seq'::regclass);
+
+
+    --
+    -- Name: rooms id; Type: DEFAULT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.rooms ALTER COLUMN id SET DEFAULT nextval('public.rooms_id_seq'::regclass);
+
+
+    --
+    -- Name: users id; Type: DEFAULT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq'::regclass);
+
+
+    --
+    -- Name: messages messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.messages
+        ADD CONSTRAINT messages_pkey PRIMARY KEY (id);
+
+
+    --
+    -- Name: rooms rooms_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.rooms
+        ADD CONSTRAINT rooms_pkey PRIMARY KEY (id);
+
+
+    --
+    -- Name: rooms rooms_title_key; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.rooms
+        ADD CONSTRAINT rooms_title_key UNIQUE (title);
+
+
+    --
+    -- Name: user_rooms user_rooms_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.user_rooms
+        ADD CONSTRAINT user_rooms_pkey PRIMARY KEY ("userId", "roomId");
+
+
+    --
+    -- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.users
+        ADD CONSTRAINT users_email_key UNIQUE (email);
+
+
+    --
+    -- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.users
+        ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+    --
+    -- Name: users users_username_key; Type: CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.users
+        ADD CONSTRAINT users_username_key UNIQUE (username);
+
+
+    --
+    -- Name: messages messages_roomId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.messages
+        ADD CONSTRAINT "messages_roomId_fkey" FOREIGN KEY ("roomId") REFERENCES public.rooms(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+    --
+    -- Name: messages messages_userId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.messages
+        ADD CONSTRAINT "messages_userId_fkey" FOREIGN KEY ("userId") REFERENCES public.users(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+    --
+    -- Name: user_rooms user_rooms_roomId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.user_rooms
+        ADD CONSTRAINT "user_rooms_roomId_fkey" FOREIGN KEY ("roomId") REFERENCES public.rooms(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+    --
+    -- Name: user_rooms user_rooms_userId_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+    --
+
+    ALTER TABLE ONLY public.user_rooms
+        ADD CONSTRAINT "user_rooms_userId_fkey" FOREIGN KEY ("userId") REFERENCES public.users(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+    --
+    -- PostgreSQL database dump complete
+    --
+
+
+
+    -- ---------- seed (Code Talk's demo convention demo / demo2, password demopassword) ----------
+    SELECT pg_catalog.set_config('search_path', 'public', false);
+    INSERT INTO users (username, email, password, role, "createdAt", "updatedAt") VALUES
+      ('demo', 'demo@demo.example', '$2b$10$dBAl9LlmeDGCZWEFK9nKI.uHw1eNQbLu9bfIKgHYn5twruZmFbnPK', 'USER', now(), now()),
+      ('demo2', 'demo2@demo.example', '$2b$10$dBAl9LlmeDGCZWEFK9nKI.uHw1eNQbLu9bfIKgHYn5twruZmFbnPK', 'USER', now(), now());
+    INSERT INTO rooms (title, "createdAt", "updatedAt") VALUES
+      ('General Discussion', now(), now()), ('JavaScript Help', now(), now()),
+      ('React Development', now(), now()), ('Node.js Backend', now(), now());
+    INSERT INTO user_rooms ("userId", "roomId", "createdAt", "updatedAt")
+    SELECT u.id, r.id, now(), now() FROM users u CROSS JOIN rooms r;
+    INSERT INTO messages (text, "roomId", "userId", "createdAt", "updatedAt")
+    SELECT 'Welcome to ' || r.title || '!', r.id, (SELECT id FROM users WHERE username = 'demo'), now(), now() FROM rooms r;
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: neon-template-bootstrap
+  namespace: neon
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: neon-template-bootstrap
+    spec:
+      serviceAccountName: neon-template-bootstrap
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: bootstrap
+        image: alpine/k8s:1.34.3
+        command:
+        - /bin/sh
+        - /template/bootstrap.sh
+        env:
+        - name: HOME
+          value: /tmp
+        - name: COMPUTE_POD
+          value: tenantflow-neon-neon-compute-0
+        - name: TEMPLATE_VERSION
+          value: '1'
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: template
+          mountPath: /template
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: template
+        configMap:
+          name: neon-template-sql
+      - name: tmp
+        emptyDir: {}
