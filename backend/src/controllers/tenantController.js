@@ -55,7 +55,7 @@ const DEFAULT_APP_CONFIGS = {
     clientPort: 80,
     dbKey: 'postgres-neon',
     apiType: 'rest',
-    healthCheckPath: '/bookmarks',
+    healthCheckPath: '/health',  // /bookmarks requires auth (401) since the auth migration
     apiPaths: ['/bookmarks', '/ai', '/import', '/search']
   },
   'firebook': {
