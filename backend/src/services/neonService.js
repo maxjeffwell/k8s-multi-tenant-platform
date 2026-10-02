@@ -35,6 +35,11 @@ const log = createLogger('neon-service');
  */
 
 const TENANT_MAP_CM = 'tenantflow-neon-tenant-map';
+const MAP_WRITE_ATTEMPTS = 6;
+
+const isConflict = (err) =>
+  [err?.code, err?.statusCode, err?.response?.statusCode, err?.body?.code].includes(409);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const DEFAULT_NEON_NAMESPACE = 'neon';
 const DEFAULT_PG_VERSION = 14;
 
@@ -117,6 +122,30 @@ class NeonService {
     }
   }
 
+  /**
+   * Read-modify-write of the tenant map with optimistic concurrency.
+   * `mutate(data)` gets a fresh copy of the map and returns the new map, or
+   * null to write nothing. If another request changed the ConfigMap in between
+   * (409: stale resourceVersion, or a concurrent first create), re-read and
+   * re-apply instead of failing the tenant operation.
+   */
+  async _updateTenantMap(mutate) {
+    for (let attempt = 1; attempt <= MAP_WRITE_ATTEMPTS; attempt++) {
+      const map = await this._readTenantMap();
+      const next = mutate({ ...map.data });
+      if (next === null) return false;
+      try {
+        await this._writeTenantMap(next, map.resourceVersion);
+        return true;
+      } catch (err) {
+        if (!isConflict(err) || attempt === MAP_WRITE_ATTEMPTS) throw err;
+        log.info({ attempt }, 'tenant map changed concurrently; retrying');
+        await sleep(50 + Math.floor(Math.random() * 150 * attempt));
+      }
+    }
+    return false;
+  }
+
   // --- Public branch ops ----------------------------------------------------
 
   /**
@@ -161,16 +190,33 @@ class NeonService {
       throw new Error(`pageserver did not return a timeline_id: ${JSON.stringify(timeline)}`);
     }
 
-    const next = {
-      ...map.data,
-      [tenantName]: JSON.stringify({
-        tenantId,
-        timelineId,
-        ancestorTimelineId: this.templateTimelineId,
-        createdAt: new Date().toISOString(),
-      }),
-    };
-    await this._writeTenantMap(next, map.resourceVersion);
+    // Record it. If a concurrent request for the SAME tenant recorded a branch
+    // first, use theirs and delete the timeline we just made (else it leaks).
+    let winner = null;
+    await this._updateTenantMap((data) => {
+      if (data[tenantName]) {
+        winner = JSON.parse(data[tenantName]);
+        return null;
+      }
+      return {
+        ...data,
+        [tenantName]: JSON.stringify({
+          tenantId,
+          timelineId,
+          ancestorTimelineId: this.templateTimelineId,
+          createdAt: new Date().toISOString(),
+        }),
+      };
+    });
+    if (winner) {
+      log.warn({ tenantName, ours: timelineId, theirs: winner.timelineId }, 'concurrent branch for same tenant; discarding ours');
+      try {
+        await this.pageserverRequest('DELETE', `/v1/tenant/${tenantId}/timeline/${timelineId}`);
+      } catch (err) {
+        log.warn({ err: err.message, timelineId }, 'failed to delete duplicate timeline');
+      }
+      return this._shapeResult(tenantName, winner.tenantId, winner.timelineId, { reused: true });
+    }
 
     log.info({ tenantName, tenantId, timelineId }, 'Neon branch created from template');
     return this._shapeResult(tenantName, tenantId, timelineId, { reused: false });
@@ -207,9 +253,12 @@ class NeonService {
       log.warn({ err: err.message, tenantId, timelineId }, 'timeline delete failed; continuing');
     }
 
-    const next = { ...map.data };
-    delete next[tenantName];
-    await this._writeTenantMap(next, map.resourceVersion);
+    await this._updateTenantMap((data) => {
+      if (!data[tenantName]) return null;
+      const next = { ...data };
+      delete next[tenantName];
+      return next;
+    });
 
     log.info({ tenantName, tenantId, timelineId }, 'tenant mapping removed');
     return true;

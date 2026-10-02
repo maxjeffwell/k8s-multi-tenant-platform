@@ -92,6 +92,9 @@ class TenantController {
       const { tenantName: inputTenantName, resourceQuota, database, appType } = validatedData;
       tenantName = inputTenantName;
       let response = { tenant: tenantName };
+      // Non-fatal problems the caller should know about (never hidden behind a
+      // plain success message).
+      const warnings = [];
 
       log.info({ tenantName, hasQuota: !!resourceQuota, hasDatabase: !!database, appType }, 'Creating tenant');
 
@@ -130,6 +133,7 @@ class TenantController {
       } catch (tlsError) {
         log.warn({ err: tlsError, tenantName }, 'TLS certificate provisioning warning - continuing without TLS');
         // Non-fatal - continue with creation
+        warnings.push(`Wildcard TLS certificate not ready: ${tlsError.message}`);
       }
 
       // ========== STEP 2: Create namespace ==========
@@ -267,12 +271,19 @@ class TenantController {
         try {
           log.info({ tenantName }, 'Waiting for deployments to be ready...');
           const deploymentReadiness = await k8sService.waitForAllDeploymentsReady(tenantName, 300000);
-          if (!deploymentReadiness.ready) {
-            log.warn({ tenantName, deployments: deploymentReadiness.deployments }, 'Some deployments not fully ready');
-          } else {
-            log.info({ tenantName }, 'All deployments ready');
-          }
           response.deploymentReadiness = deploymentReadiness;
+          if (!deploymentReadiness.ready) {
+            // An app that never becomes ready is a failed tenant, not a
+            // success with a warning: fail and roll back like every other step.
+            const notReady = deploymentReadiness.deployments.filter(d => !d.ready);
+            log.error({ tenantName, notReady }, 'Deployments did not become ready');
+            const err = new Error(
+              `Application did not become ready: ${notReady.map(d => `${d.deployment} (${d.error || 'not ready'})`).join(', ')}`
+            );
+            err.details = { deployments: notReady };
+            throw err;
+          }
+          log.info({ tenantName }, 'All deployments ready');
         } catch (readinessError) {
           log.error({ err: readinessError, tenantName }, 'Deployment readiness check failed');
           throw readinessError; // Trigger rollback
@@ -318,6 +329,7 @@ class TenantController {
           log.debug({ tenantName }, 'TLS secret copied to tenant namespace');
         } catch (tlsError) {
           log.warn({ err: tlsError, tenantName }, 'Failed to copy TLS secret, ingress will not have TLS');
+          warnings.push(`TLS secret not copied, HTTPS will not work: ${tlsError.message}`);
         }
 
         const appPrefix = appType;
@@ -348,6 +360,7 @@ class TenantController {
 
           if (!ingressStatus.ready) {
             log.warn({ tenantName, ingressStatus }, 'Ingress not fully ready but may still work');
+            warnings.push('Ingress not ready yet; the app URL may take a few minutes to respond');
           }
           response.ingressReadiness = ingressStatus;
         }
@@ -361,8 +374,11 @@ class TenantController {
           client: deployResult.client?.metadata?.name,
           ingress: ingress
         };
-        response.message = 'Tenant created and application deployed successfully';
+        response.message = warnings.length
+          ? 'Tenant created and application deployed, with warnings'
+          : 'Tenant created and application deployed successfully';
       }
+      if (warnings.length) response.warnings = warnings;
 
       log.info({ tenantName }, 'Tenant created successfully');
       res.status(201).json(response);
@@ -406,6 +422,7 @@ class TenantController {
       log.error({ err: error, tenantName: req.body?.tenantName }, 'Failed to create tenant');
       res.status(500).json({
         error: error.message,
+        ...(error.details ? { details: error.details } : {}),
         rollback: namespaceCreated ? 'Namespace rolled back' : 'No rollback needed'
       });
     }
