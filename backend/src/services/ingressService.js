@@ -71,8 +71,10 @@ class IngressService {
     const config = deps.config || {};
     this.networkingApi = deps.networkingApi || k8sNetworkingApi;
     this.customObjectsApi = deps.customObjectsApi || k8sCustomObjectsApi;
-    this.ingressDomain = config.ingressDomain || process.env.INGRESS_DOMAIN || 'localhost.nip.io';
-    this.ingressClass = config.ingressClass || process.env.INGRESS_CLASS || 'nginx';
+    // Defaults match this cluster (Traefik, *.tenants.el-jefe.me wildcard cert)
+    // and the rest of the backend (pre-flight check, CORS origins).
+    this.ingressDomain = config.ingressDomain || process.env.INGRESS_DOMAIN || 'tenants.el-jefe.me';
+    this.ingressClass = config.ingressClass || process.env.INGRESS_CLASS || 'traefik';
     this.log = deps.logger || defaultLog;
   }
 

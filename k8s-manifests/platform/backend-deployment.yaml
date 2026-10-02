@@ -34,6 +34,12 @@ spec:
         - name: PROMETHEUS_URL
           value: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
         # Self-hosted Neon pageserver for tenant branching.
+        # Tenant apps are served at <tenant>.tenants.el-jefe.me by Traefik
+        # (wildcard cert tenants-wildcard-tls, wildcard DNS -> edge).
+        - name: INGRESS_DOMAIN
+          value: "tenants.el-jefe.me"
+        - name: INGRESS_CLASS
+          value: "traefik"
         - name: PAGESERVER_URL
           value: "http://tenantflow-neon-neon-pageserver-headless.neon.svc.cluster.local:9898"
         # Template every tenant branch forks from (main timeline, built by
