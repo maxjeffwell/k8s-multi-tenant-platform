@@ -56,3 +56,30 @@ spec:
     - k8s-platform.el-jefe.me
     - tenantflow.el-jefe.me
     secretName: platform-tls
+---
+# /logout for the Basic-auth admin login (both hosts). Guarded by
+# kube-system/admin-basic-auth-logout (same realm, never-matching user list)
+# so it always returns 401 and the browser drops the cached credential.
+# Higher priority than the catch-all frontend path. 2026-10-06.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: platform-logout
+  namespace: multi-tenant-platform
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: (Host(`tenantflow.el-jefe.me`) || Host(`k8s-platform.el-jefe.me`)) && Path(`/logout`)
+      kind: Rule
+      priority: 300
+      middlewares:
+        - name: crowdsec-bouncer
+          namespace: kube-system
+        - name: admin-basic-auth-logout
+          namespace: kube-system
+      services:
+        - name: platform-frontend
+          port: 80
+  tls:
+    secretName: platform-tls

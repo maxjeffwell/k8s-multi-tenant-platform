@@ -21,6 +21,11 @@ function Navigation() {
         >
           Analytics
         </NavLink>
+        {/* Basic-auth logout: /logout is a Traefik route that always answers 401 for the admin
+            realm, so the browser forgets the cached credential. Plain <a>: must hit the edge. */}
+        <a href="/logout" className="nav-link" title="Forget the admin login in this browser">
+          Logout
+        </a>
       </div>
     </nav>
   );
