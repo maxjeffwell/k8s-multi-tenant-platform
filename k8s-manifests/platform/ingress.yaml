@@ -5,6 +5,12 @@ metadata:
   namespace: multi-tenant-platform
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
+    # 2026-10-06 (user decision): the platform UI + /api (which create/delete tenant
+    # namespaces through the Kubernetes API) were served to the internet with no
+    # authentication. Gated by the shared admin basic-auth Middleware (Traefik,
+    # kube-system; users from Doppler TRAEFIK_DASHBOARD_HTPASSWD) plus the CrowdSec
+    # bouncer. Both hostnames and both path prefixes get it.
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-crowdsec-bouncer@kubernetescrd,kube-system-admin-basic-auth@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
