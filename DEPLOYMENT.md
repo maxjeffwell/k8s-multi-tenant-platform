@@ -1,3 +1,9 @@
+> **⚠ Obsolete (2026-10-07).** This guide describes the old manual deploy to a
+> single VPS (`k8s-deployment.yaml` + `deploy-to-vps.sh`, both now deleted).
+> TenantFlow is deployed by ArgoCD app **`tenantflow`** from
+> `k8s-manifests/platform/`; CI (`.github/workflows/build-and-deploy-tenantflow.yml`)
+> updates the image tags there. Kept for history only.
+
 # TenantFlow Deployment Guide
 
 ## Overview

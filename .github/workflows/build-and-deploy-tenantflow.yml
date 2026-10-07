@@ -120,18 +120,14 @@ jobs:
             # Update Frontend deployment (k8s-manifests)
             sed -i "s|image: maxjeffwell/tenantflow-frontend:.*|image: maxjeffwell/tenantflow-frontend:${IMAGE_TAG}|" k8s-manifests/platform/frontend-deployment.yaml
 
-            # Update root k8s-deployment.yaml (used by ArgoCD)
-            sed -i "s|image: maxjeffwell/tenantflow-backend:.*|image: maxjeffwell/tenantflow-backend:${IMAGE_TAG}|" k8s-deployment.yaml
-            sed -i "s|image: maxjeffwell/tenantflow-frontend:.*|image: maxjeffwell/tenantflow-frontend:${IMAGE_TAG}|" k8s-deployment.yaml
+            git diff k8s-manifests/platform/
 
-            git diff k8s-manifests/platform/ k8s-deployment.yaml
-
-            if git diff --quiet k8s-manifests/platform/ k8s-deployment.yaml; then
+            if git diff --quiet k8s-manifests/platform/; then
               echo "No changes needed - tags already set to ${IMAGE_TAG}"
               exit 0
             fi
 
-            git add k8s-manifests/platform/backend-deployment.yaml k8s-manifests/platform/frontend-deployment.yaml k8s-deployment.yaml
+            git add k8s-manifests/platform/backend-deployment.yaml k8s-manifests/platform/frontend-deployment.yaml
             git commit -m "Update TenantFlow image tags to ${IMAGE_TAG}"
 
             if git push origin main; then
