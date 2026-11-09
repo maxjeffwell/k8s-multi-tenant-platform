@@ -24,6 +24,7 @@ const metricsMiddleware = promBundle({
   customLabels: { project_name: 'multi_tenant_platform' },
   promClient: {
     collectDefaultMetrics: {
+      eventLoopMonitoringPrecision: 100,
     }
   }
 });
