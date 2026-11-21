@@ -27,7 +27,7 @@ spec:
         effect: PreferNoSchedule
       containers:
       - name: frontend
-        image: maxjeffwell/tenantflow-frontend:20261120-065203-ba12b1c
+        image: maxjeffwell/tenantflow-frontend:20261121-021129-a0d15e5
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
